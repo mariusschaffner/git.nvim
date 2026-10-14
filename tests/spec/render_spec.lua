@@ -192,6 +192,28 @@ describe("render", function()
     eq({ ["in"] = "GitStatusIncomingLine", out = "GitStatusUnpushedLine" }, line_hl)
   end)
 
+  it("hides the graph while diffs are open and the files while a commit is shown", function()
+    local f = { path = "x.lua", code = "M", section = "unstaged" }
+    local s = state({
+      files = { unstaged = { f } },
+      graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "", subject = "first" } },
+    })
+    local r = render.render(s, { width = 60, height = 30, expanded = { ["unstaged:x.lua"] = { "+new" } } })
+    eq(nil, r.boxes.graph)
+    eq(30, #r.lines)
+    eq({ top = 6, rows = 24, offset = 0, total = 3 }, r.boxes.files)
+
+    local commit = { hash = "h1234567890", lines = { "commit h1234567890", "Author: me", "", "    msg", "+added" } }
+    r = render.render(s, { width = 60, height = 30, commit = commit })
+    eq(nil, r.boxes.files)
+    eq(30, #r.lines)
+    -- graph shrinks to its content, the commit details get the rest
+    eq({ top = 6, rows = 1, offset = 0, total = 1 }, r.boxes.graph)
+    eq({ top = 9, rows = 21, offset = 0, total = 5 }, r.boxes.commit)
+    matches("Commit h1234567", r.lines[8])
+    matches("Author: me", r.lines[10])
+  end)
+
   it("splits a fixed height evenly between files and graph and scrolls them", function()
     local files = {}
     for i = 1, 20 do

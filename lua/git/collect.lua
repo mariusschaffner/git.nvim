@@ -291,4 +291,23 @@ function M.file_diff(repo, file, cb)
   end)
 end
 
+--- `git show` of a commit: header, message, stat and patch.
+---@param repo GitRepo
+---@param hash string
+---@param cb fun(lines: string[]?, err: string?)
+function M.commit_details(repo, hash, cb)
+  local args = { "show", "--stat", "--patch", "--no-ext-diff", "--format=fuller", hash, "--" }
+  runner.run(args, { cwd = repo.root }, function(res)
+    if res.code ~= 0 then
+      cb(nil, runner.error_message(res))
+      return
+    end
+    local lines = vim.split((res.stdout:gsub("\r\n", "\n")), "\n", { plain = true })
+    if lines[#lines] == "" then
+      lines[#lines] = nil
+    end
+    cb(lines)
+  end)
+end
+
 return M

@@ -362,6 +362,25 @@ describe("ui", function()
     eq(nil, ui.current)
   end)
 
+  it("shows commit details in a box and closes them with q first", function()
+    local view = open(dir, "float")
+    local lnum = find_line(view, function(it)
+      return it.kind == "commit"
+    end)
+    vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+    ok(vim.wait(5000, function()
+      return view.rendered.boxes.commit ~= nil
+    end, 10), "commit box shown")
+    eq(nil, view.rendered.boxes.files)
+    eq(view.win, vim.api.nvim_get_current_win())
+    matches("init", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+    vim.api.nvim_feedkeys("q", "x", false)
+    eq(nil, view.rendered.boxes.commit)
+    ok(view.rendered.boxes.files, "files box back")
+    ok(view:valid(), "view still open")
+  end)
+
   it("fits the window and scrolls inside the boxes instead", function()
     for i = 1, 30 do
       H.write(dir, ("f%02d.txt"):format(i), "x")

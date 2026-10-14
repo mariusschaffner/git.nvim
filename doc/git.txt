@@ -39,6 +39,11 @@ own: `j`/`k` past a box edge, `<C-e>` `<C-y>` `<C-d>` `<C-u>` `<C-f>` `<C-b>`
 (the box under the cursor, else the graph) and the mouse wheel (the box under
 the mouse). The bottom border shows the visible range when a box overflows.
 
+While any inline diff is open, the Graph box is hidden and Files takes all of
+the space. `<CR>` on a commit hides Files instead and shows the commit
+(`git show`) in a Commit box below the graph; `<CR>` on the same commit or
+`q`/`<Esc>` closes it again.
+
 ==============================================================================
 2. REQUIREMENTS                                         *git-requirements*
 
@@ -87,13 +92,14 @@ Buffer-local mappings in the status view (press `?` for this list):
   X         Discard unstaged changes / delete untracked files. Asks first.
             Staged changes must be unstaged before they can be discarded.
   <Tab> =   Toggle the inline diff of a file (on a header: of all files).
-  <CR>      Open the file (on a diff line: at that line), the commit
-            (`git show`) or the stash (`git stash show -p`).
-  o v t     Open in a split / vertical split / tab.
+  <CR>      Open the file (on a diff line: at that line) or the stash
+            (`git stash show -p`). On a commit: toggle its details box.
+  o v t     Open in a split / vertical split / tab (commits as `git show`).
   P A D     Pop / apply / drop the stash under the cursor (drop asks first).
   ]] [[     Next / previous section.
   r         Refresh.
-  q <Esc>   Close. <Esc> only closes floating views.
+  q <Esc>   Close the commit details if open, else the view. <Esc> only
+            closes floating views.
   ?         Show the keymaps.
 
 The view's buffer has 'filetype' `gitstatus`, so a |FileType| autocommand
@@ -108,7 +114,7 @@ Defaults: >lua
     window = {
       kind = "float",      -- "float" | "split" | "vsplit" | "tab"
       width = 0.8,         -- float size: fraction of the editor (<= 1)
-      height = 0.8,        -- or absolute columns/lines (> 1)
+      height = 0.9,        -- or absolute columns/lines (> 1)
       border = "rounded",
     },
     icons = true,          -- Nerd Font icons; false = plain ASCII labels

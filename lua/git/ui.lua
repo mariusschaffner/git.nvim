@@ -17,7 +17,8 @@ M.ns = ns
 ---@field state GitState?
 ---@field rendered GitRendered?
 ---@field expanded table<string, string[]>
----@field scroll table<string, integer> Scroll offsets of the files/graph boxes
+---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
+---@field commit { hash: string, lines: string[] }? Commit shown in the details box
 ---@field generation integer
 ---@field augroup integer
 ---@field closed boolean
@@ -288,6 +289,7 @@ function View:redraw(opts)
     width = width,
     height = vim.api.nvim_win_get_height(self.win),
     expanded = self.expanded,
+    commit = self.commit,
     scroll = self.scroll,
     focus = key,
   })
@@ -318,6 +320,39 @@ function View:redraw(opts)
   vim.api.nvim_win_call(self.win, function()
     vim.fn.winrestview({ topline = 1 })
   end)
+end
+
+--- Show a commit's details in a box below the graph (in place of the files); again on the same commit hides it.
+---@param hash string
+---@param cb fun()?
+function View:toggle_commit(hash, cb)
+  if self.commit and self.commit.hash == hash then
+    self:hide_commit()
+    if cb then
+      cb()
+    end
+    return
+  end
+  collect.commit_details(self.repo, hash, function(lines, err)
+    if self.closed then
+      return
+    end
+    if not lines then
+      util.notify(err or "git show failed", vim.log.levels.ERROR)
+      return
+    end
+    self.commit = { hash = hash, lines = lines }
+    self.scroll.commit = 0
+    self:redraw()
+    if cb then
+      cb()
+    end
+  end)
+end
+
+function View:hide_commit()
+  self.commit = nil
+  self:redraw()
 end
 
 --- Name and layout of the scrollable box showing line `lnum`.

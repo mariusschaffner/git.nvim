@@ -22,7 +22,7 @@ M.defaults = {
   window = {
     kind = "float",
     width = 0.8, -- fraction of the editor (<= 1) or absolute columns (> 1)
-    height = 0.8,
+    height = 0.9,
     border = "rounded",
   },
   icons = true,

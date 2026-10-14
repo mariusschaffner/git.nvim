@@ -18,7 +18,7 @@ local M = {}
 ---@field marks { row: integer, col: integer, end_col: integer, hl: string, priority: integer? }[] 0-based row, byte columns
 ---@field items table<integer, GitItem> 1-based line -> item
 ---@field sections integer[] 1-based lines of box titles and file section headers
----@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph"); only with a fixed height
+---@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit"); only with a fixed height
 ---@field scroll table<string, integer> Final scroll offsets of the scrollable boxes
 
 ---@class GitBox
@@ -33,6 +33,7 @@ local M = {}
 ---@field height integer? Fixed total height: the files and graph boxes split the space left by the others
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
+---@field commit { hash: string, lines: string[] }? Commit details to show; replaces the files box
 
 local SECTION_LABEL = {
   conflicted = "Conflicted",
@@ -488,30 +489,62 @@ local function commit_graph(state)
   return out
 end
 
+---@param commit { hash: string, lines: string[] }
+local function commit_details(commit)
+  local out = {}
+  for _, l in ipairs(commit.lines) do
+    local hl
+    if l:match("^commit ") then
+      hl = "GitStatusHash"
+    elseif l:match("^%w+:") then
+      hl = "GitStatusLabel"
+    else
+      hl = diff_line_hl(l)
+    end
+    out[#out + 1] = { segs = { { " " }, { l, hl } } }
+  end
+  return out
+end
+
 --- Render the full status view.
 ---@param state GitState
 ---@param opts GitRenderOpts
 ---@return GitRendered
 function M.render(state, opts)
   local b = Builder.new(opts.width)
-  local file_rows, graph_rows = files(state, opts), commit_graph(state)
   b:box("Branches", branches(state))
   b:box("Tags", tags(state))
   b:box("Stashes", stashes(state))
+
+  -- The lower boxes, as { name, title, rows, height } (height incl. the 2 border lines, set below):
+  -- commit details replace the files box, open diffs replace the graph box, else files and graph share.
+  local graph_rows = commit_graph(state)
+  local avail = (opts.height or 0) - #b.lines
+  local layout
+  if opts.commit then
+    local g = math.min(math.max(#graph_rows, 1) + 2, math.floor(avail / 2))
+    layout = {
+      { "graph", "Graph", graph_rows, g },
+      { "commit", "Commit " .. opts.commit.hash:sub(1, 8), commit_details(opts.commit), avail - g },
+    }
+  elseif next(opts.expanded or {}) then
+    layout = { { "files", "Files", files(state, opts), avail } }
+  else
+    local f = math.floor(avail / 2)
+    layout = { { "files", "Files", files(state, opts), f }, { "graph", "Graph", graph_rows, avail - f } }
+  end
+
   if not opts.height then
-    b:box("Files", file_rows)
-    b:box("Graph", graph_rows)
+    for _, spec in ipairs(layout) do
+      b:box(spec[2], spec[3])
+    end
     return { lines = b.lines, marks = b.marks, items = b.items, sections = b.sections, boxes = {}, scroll = {} }
   end
 
-  -- Fixed height: files and graph split what is left after the boxes above (each box has 2 border lines).
-  local avail = opts.height - #b.lines
-  local heights = { files = math.floor(avail / 2) }
-  heights.graph = avail - heights.files
   local boxes, scroll = {}, {}
-  for _, spec in ipairs({ { "files", "Files", file_rows }, { "graph", "Graph", graph_rows } }) do
+  for _, spec in ipairs(layout) do
     local name, content = spec[1], spec[3]
-    local rows = math.max(heights[name] - 2, 1)
+    local rows = math.max(spec[4] - 2, 1)
     local offset = (opts.scroll or {})[name] or 0
     if opts.focus then
       for i, c in ipairs(content) do

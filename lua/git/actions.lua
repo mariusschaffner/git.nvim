@@ -197,7 +197,11 @@ function M.open(view, cmd, item)
     return
   end
   if item.kind == "commit" then
-    M.show(view, { "show", "--stat", "--patch", "--format=fuller", item.hash }, "git://show/" .. item.hash, cmd)
+    if cmd == "edit" then
+      view:toggle_commit(item.hash)
+    else
+      M.show(view, { "show", "--stat", "--patch", "--format=fuller", item.hash }, "git://show/" .. item.hash, cmd)
+    end
     return
   elseif item.kind == "stash" then
     M.show(view, { "stash", "show", "--stat", "--patch", item.stash.ref }, "git://stash/" .. item.stash.ref, cmd)
@@ -328,7 +332,7 @@ M.descriptions = {
   unstage = "Unstage file / section / selection",
   discard = "Discard unstaged changes / delete untracked files",
   toggle_diff = "Toggle inline diff",
-  open = "Open file, commit or stash",
+  open = "Open file or stash / toggle commit details",
   open_split = "Open in a horizontal split",
   open_vsplit = "Open in a vertical split",
   open_tab = "Open in a new tab",
@@ -338,7 +342,7 @@ M.descriptions = {
   next_section = "Next section",
   prev_section = "Previous section",
   refresh = "Refresh",
-  close = "Close",
+  close = "Close (commit details first)",
   help = "Show this help",
 }
 
@@ -508,7 +512,11 @@ function M.attach(view)
     close = {
       "n",
       function()
-        view:close()
+        if view.commit then
+          view:hide_commit()
+        else
+          view:close()
+        end
       end,
     },
     help = {
