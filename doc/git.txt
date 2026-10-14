@@ -1,0 +1,191 @@
+*git.txt*  Interactive git status dashboard for Neovim
+
+==============================================================================
+CONTENTS                                                        *git.nvim*
+
+  1. Introduction ............................ |git-introduction|
+  2. Requirements ............................ |git-requirements|
+  3. Setup ................................... |git-setup|
+  4. Commands ................................ |git-commands|
+  5. Keymaps ................................. |git-keymaps|
+  6. Configuration ........................... |git-config|
+  7. Highlights .............................. |git-highlights|
+  8. Lua API ................................. |git-api|
+
+==============================================================================
+1. INTRODUCTION                                         *git-introduction*
+
+git.nvim shows the state of the repository of the current file (or the
+current directory) in four panels:
+
+  Branches   nearest/exact tag, unpushed tags, merge/rebase in progress,
+             upstream with ahead/behind counts and incoming commits, HEAD
+  Stashes    the most recent stash entries
+  Files      conflicted, staged, unstaged and untracked files with +/- line
+             counts; diffs can be expanded inline
+  Graph      a lane-based graph of the most recent commits
+
+Files can be staged, unstaged and discarded from the view, stashes popped,
+applied and dropped, and commits and stashes opened. All git commands run
+asynchronously; the view refreshes itself when the index or HEAD changes.
+
+==============================================================================
+2. REQUIREMENTS                                         *git-requirements*
+
+- Neovim >= 0.10
+- git >= 2.23 on PATH
+- Optional: a Nerd Font for icons (set `icons = false` otherwise)
+
+Run |:checkhealth| git to verify.
+
+==============================================================================
+3. SETUP                                                       *git-setup*
+
+The plugin works without calling setup. Commands are defined at startup;
+Lua modules are only loaded when the view is first opened, so lazy-loading
+is not needed. With lazy.nvim: >lua
+
+  {
+    "<you>/git.nvim",
+    cmd = "GitStatus",
+    keys = { { "<leader>gs", "<cmd>GitStatus<cr>", desc = "Git status" } },
+    opts = {},
+  }
+<
+==============================================================================
+4. COMMANDS                                                 *git-commands*
+
+                                                              *:GitStatus*
+:GitStatus [kind]       Open the status view, or focus it when it is already
+                        open. [kind] is one of `float`, `split`, `vsplit`,
+                        `tab` and defaults to `window.kind`.
+:GitStatus toggle       Open or close the view.
+:GitStatus close        Close the view.
+:GitStatus refresh      Refresh the open view.
+
+<Plug>(GitStatus)       Open the view.
+<Plug>(GitStatusToggle) Toggle the view.
+
+==============================================================================
+5. KEYMAPS                                                   *git-keymaps*
+
+Buffer-local mappings in the status view (press `?` for this list):
+
+  s         Stage the file, all files of a section (on its header), or the
+            selected lines in Visual mode. On conflicted files: mark resolved.
+  u         Unstage (same targets as `s`).
+  X         Discard unstaged changes / delete untracked files. Asks first.
+            Staged changes must be unstaged before they can be discarded.
+  <Tab> =   Toggle the inline diff of a file (on a header: of all files).
+  <CR>      Open the file (on a diff line: at that line), the commit
+            (`git show`) or the stash (`git stash show -p`).
+  o v t     Open in a split / vertical split / tab.
+  P A D     Pop / apply / drop the stash under the cursor (drop asks first).
+  ]] [[     Next / previous section.
+  r         Refresh.
+  q <Esc>   Close. <Esc> only closes floating views.
+  ?         Show the keymaps.
+
+The view's buffer has 'filetype' `gitstatus`, so a |FileType| autocommand
+can add further mappings.
+
+==============================================================================
+6. CONFIGURATION                                               *git-config*
+
+Defaults: >lua
+
+  require("git").setup({
+    window = {
+      kind = "float",      -- "float" | "split" | "vsplit" | "tab"
+      width = 0.8,         -- float size: fraction of the editor (<= 1)
+      height = 0.8,        -- or absolute columns/lines (> 1)
+      border = "rounded",
+    },
+    icons = true,          -- Nerd Font icons; false = plain ASCII labels
+    protected_branches = { "main", "master" }, -- marked in the HEAD line
+    graph = { max_commits = 12 },
+    stash = { max = 5 },
+    remote_commits = { max = 10 }, -- incoming commits listed when behind
+    diff = { max_lines = 500 },    -- per inline diff
+    untracked_files = "normal",    -- "normal" | "all" | "no"
+    tags = {
+      -- Detect local tags at HEAD that are missing on the remote. This runs
+      -- `git ls-remote` (network), at most every `cache_ttl` seconds.
+      check_remote = false,
+      timeout = 5000,
+      cache_ttl = 60,
+    },
+    auto_refresh = true,   -- refresh on index/HEAD changes, writes, focus
+    refresh_debounce = 150,
+    timeout = 15000,       -- ms, for local git commands
+    hints = true,          -- show key and git command hints in the panels
+    keymaps = {
+      stage = "s",
+      unstage = "u",
+      discard = "X",
+      toggle_diff = { "<Tab>", "=" },
+      open = "<CR>",
+      open_split = "o",
+      open_vsplit = "v",
+      open_tab = "t",
+      stash_pop = "P",
+      stash_apply = "A",
+      stash_drop = "D",
+      next_section = "]]",
+      prev_section = "[[",
+      refresh = "r",
+      close = { "q", "<Esc>" },
+      help = "?",
+    },
+  })
+<
+Set a keymap to `false` to disable it. Lists (`protected_branches`, keymap
+lists) replace the defaults instead of being merged. Invalid options are
+reported and the previous configuration is kept.
+
+==============================================================================
+7. HIGHLIGHTS                                              *git-highlights*
+
+All groups are defined with `default = true` and link to standard groups,
+so they follow the colorscheme. Override them with |nvim_set_hl()|.
+
+  GitStatusBorder           box borders            -> FloatBorder
+  GitStatusBoxTitle         box titles             -> Title
+  GitStatusDim              hints, zero counts     -> Comment
+  GitStatusLabel            Remote:, HEAD: ...     -> Keyword
+  GitStatusTagLabel         tag labels             -> Label
+  GitStatusTag              tag at HEAD            -> Constant
+  GitStatusTagNearest       nearest tag            -> Special
+  GitStatusTagUnpushed      unpushed tag           -> DiagnosticWarn
+  GitStatusUpstream         upstream branch        -> String
+  GitStatusBranch           current branch         -> Type
+  GitStatusProtected        protected marker       -> DiagnosticError
+  GitStatusAhead            ahead count            -> DiagnosticInfo
+  GitStatusBehind           behind count           -> DiagnosticWarn
+  GitStatusRemoteCommit     incoming commits       -> WarningMsg
+  GitStatusWarning          operation in progress  -> WarningMsg
+  GitStatusStash            stash entries          -> Special
+  GitStatusSection{Conflicted,Staged,Unstaged,Untracked}   section headers
+  GitStatus{Conflicted,Staged,Unstaged,Untracked}          file markers
+  GitStatusFile             file names             -> Normal
+  GitStatusAdded            +N                     -> Added
+  GitStatusDeleted          -N                     -> Removed
+  GitStatusGraph            graph lines            -> Comment
+  GitStatusGraphCommit      commit node            -> Function
+  GitStatusGraphMerge       merge node             -> Statement
+  GitStatusHash             pushed commit hash     -> Identifier
+  GitStatusHashUnpushed     unpushed commit hash   -> Added
+  GitStatusDeco             ref names              -> String
+  GitStatusSubject          commit subject         -> Normal
+  GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
+
+==============================================================================
+8. LUA API                                                       *git-api*
+
+  require("git").setup({opts})    Configure, see |git-config|.
+  require("git").open({opts})     Open/focus. {opts}: `kind`, `cwd`.
+  require("git").toggle({opts})   Toggle.
+  require("git").close()          Close.
+  require("git").refresh()        Refresh the open view.
+
+ vim:tw=78:ts=8:ft=help:norl:
