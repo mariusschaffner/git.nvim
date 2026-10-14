@@ -1,7 +1,8 @@
 local config = require("git.config")
-local collect = require("git.collect")
-local render = require("git.render")
-local util = require("git.util")
+local collect = require("git.status.collect")
+local queries = require("git.core.queries")
+local render = require("git.status.render")
+local util = require("git.core.util")
 
 local M = {}
 
@@ -34,7 +35,7 @@ M.View = View
 M.current = nil
 
 local function float_config(repo)
-  local w = config.options.window
+  local w = config.options.status.window
   local cols = vim.o.columns
   local lines = vim.o.lines - vim.o.cmdheight - 1
   local function size(v, total)
@@ -117,15 +118,15 @@ function View.new(repo, kind)
   end
   set_win_opts(self.win)
 
-  self.schedule_refresh, self.cancel_refresh = util.debounce(config.options.refresh_debounce, function()
+  self.schedule_refresh, self.cancel_refresh = util.debounce(config.options.status.refresh_debounce, function()
     self:refresh()
   end)
 
-  require("git.actions").attach(self)
+  require("git.status.actions").attach(self)
   self:_motions()
   self:_autocmds()
-  if config.options.auto_refresh then
-    self.watcher = require("git.watch").start(repo.gitdir, self.schedule_refresh)
+  if config.options.status.auto_refresh then
+    self.watcher = require("git.core.watch").start(repo.gitdir, self.schedule_refresh)
   end
 
   -- Set last, so FileType autocmds see a fully set-up buffer (e.g. to add keymaps).
@@ -184,7 +185,7 @@ function View:_autocmds()
       end
     end,
   })
-  if config.options.auto_refresh then
+  if config.options.status.auto_refresh then
     au({ "BufWritePost", "FocusGained", "ShellCmdPost", "TermLeave" }, {
       callback = function()
         self.schedule_refresh()
@@ -333,7 +334,7 @@ function View:toggle_commit(hash, cb)
     end
     return
   end
-  collect.commit_details(self.repo, hash, function(lines, err)
+  queries.commit_details(self.repo, hash, function(lines, err)
     if self.closed then
       return
     end
@@ -501,7 +502,7 @@ function View:_refresh_diffs(state, cb)
     local f = present[key]
     if f then
       tasks[#tasks + 1] = function(done)
-        collect.file_diff(self.repo, f, function(lines)
+        queries.file_diff(self.repo, f, function(lines)
           expanded[key] = lines or { "(diff unavailable)" }
           done()
         end)
@@ -551,7 +552,7 @@ function View:toggle_diff(file, expand, cb)
     end
     return
   end
-  collect.file_diff(self.repo, file, function(lines, err)
+  queries.file_diff(self.repo, file, function(lines, err)
     if self.closed then
       return
     end
@@ -576,7 +577,7 @@ end
 ---@param cb fun(view: GitView?)?
 function M.open(opts, cb)
   opts = opts or {}
-  local kind = opts.kind or config.options.window.kind
+  local kind = opts.kind or config.options.status.window.kind
   require("git.highlights").ensure()
 
   local cur = M.current
@@ -586,11 +587,11 @@ function M.open(opts, cb)
     if cur and not cur.closed and vim.api.nvim_get_current_buf() == cur.buf then
       start = cur.repo.root
     else
-      start = require("git.repo").start_dir(0)
+      start = require("git.core.repo").start_dir(0)
     end
   end
 
-  require("git.repo").find(start, function(repo, err)
+  require("git.core.repo").find(start, function(repo, err)
     if not repo then
       util.notify(err or "Not a git repository", vim.log.levels.WARN)
       if cb then

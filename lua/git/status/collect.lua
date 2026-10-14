@@ -1,5 +1,5 @@
-local runner = require("git.runner")
-local util = require("git.util")
+local runner = require("git.core.runner")
+local util = require("git.core.util")
 local parse_status = require("git.parse.status")
 local parse_numstat = require("git.parse.numstat")
 local parse_log = require("git.parse.log")
@@ -66,7 +66,7 @@ function M.cached_remote_tags(repo, remote)
   if not entry then
     return nil, false
   end
-  local ttl = require("git.config").options.tags.cache_ttl
+  local ttl = require("git.config").options.status.tags.cache_ttl
   return entry.tags, os.time() - entry.at < ttl
 end
 
@@ -75,7 +75,7 @@ end
 ---@param remote string
 ---@param cb fun(ok: boolean)
 function M.fetch_remote_tags(repo, remote, cb)
-  local config = require("git.config").options
+  local config = require("git.config").options.status
   runner.run(
     { "ls-remote", "--tags", "--refs", remote },
     { cwd = repo.root, timeout = config.tags.timeout },
@@ -101,7 +101,7 @@ end
 ---@param repo GitRepo
 ---@param cb fun(state: GitState?, err: string?)
 function M.collect(repo, cb)
-  local config = require("git.config").options
+  local config = require("git.config").options.status
   local cwd = repo.root
   local status_res, staged_res, unstaged_res
   local stashes, remotes = {}, {}
@@ -234,7 +234,7 @@ end
 ---@param state GitState
 ---@return boolean needs_fetch Whether the cache is missing or stale
 function M.resolve_unpushed_tags(state)
-  local config = require("git.config").options
+  local config = require("git.config").options.status
   state.tags.unpushed = {}
   if not config.tags.check_remote or #state.tags.local_at_head == 0 then
     return false
@@ -259,55 +259,6 @@ end
 ---@return string?
 function M.tag_remote(state)
   return state.remote or (vim.tbl_contains(state.remotes, "origin") and "origin") or state.remotes[1]
-end
-
----@param repo GitRepo
----@param file GitFile
----@param cb fun(lines: string[]?, err: string?)
-function M.file_diff(repo, file, cb)
-  local args
-  if file.section == "staged" then
-    args = { "diff", "--cached", "--no-ext-diff", "--" }
-    if file.orig then
-      table.insert(args, file.orig)
-    end
-    table.insert(args, file.path)
-  elseif file.section == "untracked" then
-    args = { "diff", "--no-index", "--no-ext-diff", "--", "/dev/null", file.path }
-  else
-    args = { "diff", "--no-ext-diff", "--", file.path }
-  end
-  runner.run(args, { cwd = repo.root, literal = file.section ~= "untracked" }, function(res)
-    -- `diff --no-index` exits 1 when files differ.
-    if res.code ~= 0 and not (file.section == "untracked" and res.code == 1) then
-      cb(nil, runner.error_message(res))
-      return
-    end
-    local lines = vim.split((res.stdout:gsub("\r\n", "\n")), "\n", { plain = true })
-    if lines[#lines] == "" then
-      lines[#lines] = nil
-    end
-    cb(lines)
-  end)
-end
-
---- `git show` of a commit: header, message, stat and patch.
----@param repo GitRepo
----@param hash string
----@param cb fun(lines: string[]?, err: string?)
-function M.commit_details(repo, hash, cb)
-  local args = { "show", "--stat", "--patch", "--no-ext-diff", "--format=fuller", hash, "--" }
-  runner.run(args, { cwd = repo.root }, function(res)
-    if res.code ~= 0 then
-      cb(nil, runner.error_message(res))
-      return
-    end
-    local lines = vim.split((res.stdout:gsub("\r\n", "\n")), "\n", { plain = true })
-    if lines[#lines] == "" then
-      lines[#lines] = nil
-    end
-    cb(lines)
-  end)
 end
 
 return M

@@ -1,4 +1,4 @@
-local runner = require("git.runner")
+local runner = require("git.core.runner")
 
 local M = {}
 
@@ -32,7 +32,7 @@ function M.find(dir, cb)
       cb(nil, "Not a git repository")
       return
     end
-    local lines = require("git.util").lines(res.stdout)
+    local lines = require("git.core.util").lines(res.stdout)
     if #lines < 2 then
       -- e.g. inside a bare repo or the .git dir itself: no work tree to show.
       cb(nil, "Not inside a git work tree")

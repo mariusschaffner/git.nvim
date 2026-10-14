@@ -1,4 +1,4 @@
-local graph = require("git.graph")
+local graph = require("git.status.graph")
 
 local function c(hash, ...)
   return { hash = hash, abbrev = hash, parents = { ... }, deco = "", subject = hash }

@@ -1,6 +1,6 @@
 local H = require("helpers")
-local ui = require("git.ui")
-local actions = require("git.actions")
+local ui = require("git.status.ui")
+local actions = require("git.status.actions")
 
 local function open(dir, kind)
   local view = H.await(function(done)
@@ -15,7 +15,7 @@ local function settle(view, fn)
   fn()
   ok(
     vim.wait(10000, function()
-      return view.generation > gen and not require("git.runner").busy() and view.state ~= nil
+      return view.generation > gen and not require("git.core.runner").busy() and view.state ~= nil
     end, 10),
     "refresh started"
   )
@@ -52,7 +52,7 @@ describe("ui", function()
   before_each(function()
     -- Tall enough that the files and graph boxes show all entries without scrolling.
     vim.o.lines = 80
-    require("git.config").setup({ auto_refresh = false })
+    require("git.config").setup({ status = { auto_refresh = false } })
     dir = H.repo()
     H.write(dir, "tracked.txt", { "one" })
     H.commit(dir, "init")
@@ -298,7 +298,7 @@ describe("ui", function()
   end)
 
   it("installs buffer-local keymaps from config", function()
-    require("git.config").setup({ auto_refresh = false, keymaps = { stage = "S", discard = false } })
+    require("git.config").setup({ status = { auto_refresh = false, keymaps = { stage = "S", discard = false } } })
     local view = open(dir, "split")
     local maps = {}
     for _, m in ipairs(vim.api.nvim_buf_get_keymap(view.buf, "n")) do
@@ -348,7 +348,7 @@ describe("ui", function()
   end)
 
   it("opens a borderless float", function()
-    require("git.config").setup({ auto_refresh = false, window = { border = "none" } })
+    require("git.config").setup({ status = { auto_refresh = false, window = { border = "none" } } })
     local view = open(dir, "float")
     eq("float", view.kind)
   end)
@@ -403,7 +403,7 @@ describe("ui", function()
     vim.api.nvim_feedkeys("j", "x", false)
     eq(1, view.rendered.boxes.files.offset)
     eq(last, vim.api.nvim_win_get_cursor(view.win)[1])
-    local key = require("git.render").item_key
+    local key = require("git.status.render").item_key
     eq(key(below), key(view.rendered.items[last - 1]))
     eq(1, vim.fn.line("w0", view.win))
 
@@ -413,7 +413,7 @@ describe("ui", function()
   end)
 
   it("auto-refreshes when the index changes", function()
-    require("git.config").setup({ auto_refresh = true, refresh_debounce = 20 })
+    require("git.config").setup({ status = { auto_refresh = true, refresh_debounce = 20 } })
     local view = open(dir, "float")
     H.write(dir, "tracked.txt", { "watched" })
     H.git(dir, { "add", "tracked.txt" })

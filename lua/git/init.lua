@@ -10,20 +10,20 @@ end
 --- Open (or focus) the status view for the repository of the current file / cwd.
 ---@param opts GitOpenOpts?
 function M.open(opts)
-  require("git.ui").open(opts)
+  require("git.status.ui").open(opts)
 end
 
 function M.close()
-  require("git.ui").close()
+  require("git.status.ui").close()
 end
 
 ---@param opts GitOpenOpts?
 function M.toggle(opts)
-  require("git.ui").toggle(opts)
+  require("git.status.ui").toggle(opts)
 end
 
 function M.refresh()
-  require("git.ui").refresh()
+  require("git.status.ui").refresh()
 end
 
 local SUBCOMMANDS = {

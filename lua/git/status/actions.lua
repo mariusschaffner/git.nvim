@@ -1,6 +1,6 @@
 local config = require("git.config")
-local runner = require("git.runner")
-local util = require("git.util")
+local runner = require("git.core.runner")
+local util = require("git.core.util")
 
 local M = {}
 
@@ -219,7 +219,7 @@ function M.open(view, cmd, item)
   end
   local lnum
   if item.kind == "diff" and item.diff_line then
-    local diff = view.expanded[require("git.render").diff_key(f)]
+    local diff = view.expanded[require("git.status.render").diff_key(f)]
     lnum = diff and M.diff_target_line(diff, item.diff_line)
   end
   local run = goto_target(view, cmd)
@@ -289,7 +289,7 @@ function M.toggle_diff(view, items)
   if #fs == 0 then
     return
   end
-  local diff_key = require("git.render").diff_key
+  local diff_key = require("git.status.render").diff_key
   if #fs == 1 then
     view:toggle_diff(fs[1])
     return
@@ -388,7 +388,7 @@ function M.help(view)
     row = math.max(math.floor((vim.o.lines - #lines) / 2) - 1, 0),
     col = math.max(math.floor((vim.o.columns - width) / 2), 0),
     style = "minimal",
-    border = config.options.window.border,
+    border = config.options.status.window.border,
     title = " git.nvim keymaps ",
     title_pos = "center",
     zindex = 60,

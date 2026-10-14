@@ -1,4 +1,4 @@
-local util = require("git.util")
+local util = require("git.core.util")
 
 local M = {}
 

@@ -1,5 +1,5 @@
-local util = require("git.util")
-local graph = require("git.graph")
+local util = require("git.core.util")
+local graph = require("git.status.graph")
 
 local M = {}
 
@@ -84,7 +84,7 @@ end
 ---@return GitSeg?
 local function hint(pairs_, extra)
   local config = require("git.config")
-  if not config.options.hints then
+  if not config.options.status.hints then
     return nil
   end
   local parts = {}
@@ -223,7 +223,7 @@ end
 
 ---@param state GitState
 local function branches(state)
-  local config = require("git.config").options
+  local config = require("git.config").options.status
   local ic = require("git.config").icons()
   local out = {}
   local function row(segs, item)
@@ -314,7 +314,7 @@ end
 
 ---@param state GitState
 local function stashes(state)
-  local config = require("git.config").options
+  local config = require("git.config").options.status
   local ic = require("git.config").icons()
   local out = {}
   if #state.stashes == 0 then
@@ -436,7 +436,7 @@ local function files(state, opts)
 
         local diff = opts.expanded and opts.expanded[M.diff_key(f)]
         if diff then
-          local max = config.diff.max_lines
+          local max = config.status.diff.max_lines
           local function ditem(i)
             return { kind = "diff", section = section, file = f, diff_line = i }
           end
@@ -512,26 +512,29 @@ end
 ---@return GitRendered
 function M.render(state, opts)
   local b = Builder.new(opts.width)
-  b:box("Branches", branches(state))
-  b:box("Tags", tags(state))
-  b:box("Stashes", stashes(state))
+  -- Commit details show only the graph and the commit; open diffs show only the files.
+  -- Otherwise the fixed boxes come first and files and graph share the rest.
+  local overview = not opts.commit and not next(opts.expanded or {})
+  if overview then
+    b:box("Branches", branches(state))
+    b:box("Tags", tags(state))
+    b:box("Stashes", stashes(state))
+  end
 
-  -- The lower boxes, as { name, title, rows, height } (height incl. the 2 border lines, set below):
-  -- commit details replace the files box, open diffs replace the graph box, else files and graph share.
-  local graph_rows = commit_graph(state)
+  -- The scrollable boxes, as { name, title, rows, height } (height incl. the 2 border lines).
   local avail = (opts.height or 0) - #b.lines
   local layout
   if opts.commit then
-    local g = math.min(math.max(#graph_rows, 1) + 2, math.floor(avail / 2))
+    local g = math.floor(avail * 0.3)
     layout = {
-      { "graph", "Graph", graph_rows, g },
+      { "graph", "Graph", commit_graph(state), g },
       { "commit", "Commit " .. opts.commit.hash:sub(1, 8), commit_details(opts.commit), avail - g },
     }
-  elseif next(opts.expanded or {}) then
+  elseif not overview then
     layout = { { "files", "Files", files(state, opts), avail } }
   else
     local f = math.floor(avail / 2)
-    layout = { { "files", "Files", files(state, opts), f }, { "graph", "Graph", graph_rows, avail - f } }
+    layout = { { "files", "Files", files(state, opts), f }, { "graph", "Graph", commit_graph(state), avail - f } }
   end
 
   if not opts.height then

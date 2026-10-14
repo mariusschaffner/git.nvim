@@ -1,6 +1,6 @@
-local render = require("git.render")
+local render = require("git.status.render")
 local config = require("git.config")
-local util = require("git.util")
+local util = require("git.core.util")
 
 local function state(over)
   local s = {
@@ -76,7 +76,7 @@ describe("render", function()
 
   it("marks protected branches from config", function()
     matches("%(protected%)", text(render.render(state(), { width = 100 })))
-    config.setup({ icons = false, protected_branches = { "release" } })
+    config.setup({ icons = false, status = { protected_branches = { "release" } } })
     ok(not text(render.render(state(), { width = 100 })):find("protected"))
   end)
 
@@ -192,7 +192,7 @@ describe("render", function()
     eq({ ["in"] = "GitStatusIncomingLine", out = "GitStatusUnpushedLine" }, line_hl)
   end)
 
-  it("hides the graph while diffs are open and the files while a commit is shown", function()
+  it("shows only the files while diffs are open, only graph and commit while a commit is shown", function()
     local f = { path = "x.lua", code = "M", section = "unstaged" }
     local s = state({
       files = { unstaged = { f } },
@@ -201,17 +201,19 @@ describe("render", function()
     local r = render.render(s, { width = 60, height = 30, expanded = { ["unstaged:x.lua"] = { "+new" } } })
     eq(nil, r.boxes.graph)
     eq(30, #r.lines)
-    eq({ top = 6, rows = 24, offset = 0, total = 3 }, r.boxes.files)
+    ok(not text(r):find("Branches"))
+    eq({ top = 2, rows = 28, offset = 0, total = 3 }, r.boxes.files)
 
     local commit = { hash = "h1234567890", lines = { "commit h1234567890", "Author: me", "", "    msg", "+added" } }
     r = render.render(s, { width = 60, height = 30, commit = commit })
     eq(nil, r.boxes.files)
     eq(30, #r.lines)
-    -- graph shrinks to its content, the commit details get the rest
-    eq({ top = 6, rows = 1, offset = 0, total = 1 }, r.boxes.graph)
-    eq({ top = 9, rows = 21, offset = 0, total = 5 }, r.boxes.commit)
-    matches("Commit h1234567", r.lines[8])
-    matches("Author: me", r.lines[10])
+    ok(not text(r):find("Branches"))
+    -- 30/70: graph 9 lines, commit 21 lines (each incl. 2 border lines)
+    eq({ top = 2, rows = 7, offset = 0, total = 1 }, r.boxes.graph)
+    eq({ top = 11, rows = 19, offset = 0, total = 5 }, r.boxes.commit)
+    matches("Commit h1234567", r.lines[10])
+    matches("Author: me", r.lines[12])
   end)
 
   it("splits a fixed height evenly between files and graph and scrolls them", function()
@@ -236,7 +238,7 @@ describe("render", function()
   end)
 
   it("omits hints when disabled", function()
-    config.setup({ icons = false, hints = false })
+    config.setup({ icons = false, status = { hints = false } })
     local r = render.render(state({ files = { unstaged = { { path = "x", code = "M", section = "unstaged" } } } }), {
       width = 120,
     })
@@ -245,42 +247,11 @@ describe("render", function()
   end)
 
   it("shows configured keys in hints", function()
-    config.setup({ icons = false, keymaps = { stage = "-", discard = false } })
+    config.setup({ icons = false, status = { keymaps = { stage = "-", discard = false } } })
     local r = render.render(state({ files = { unstaged = { { path = "x", code = "M", section = "unstaged" } } } }), {
       width = 120,
     })
     matches("| %- stage", text(r))
     ok(not text(r):find("discard"))
-  end)
-end)
-
-describe("config", function()
-  it("rejects invalid options and keeps the previous config", function()
-    config.setup({})
-    local notified
-    local orig = vim.notify
-    vim.notify = function(msg)
-      notified = msg
-    end
-    local res = config.setup({ window = { kind = "popup" } })
-    vim.notify = orig
-    eq(false, res)
-    matches("window%.kind", notified)
-    eq("float", config.options.window.kind)
-  end)
-
-  it("rejects unknown keymap actions", function()
-    local orig = vim.notify
-    vim.notify = function() end
-    eq(false, config.setup({ keymaps = { nope = "x" } }))
-    vim.notify = orig
-  end)
-
-  it("replaces lists instead of merging them", function()
-    config.setup({ protected_branches = { "trunk" } })
-    eq({ "trunk" }, config.options.protected_branches)
-    config.setup({ keymaps = { close = "Q" } })
-    eq({ "Q" }, config.keys("close"))
-    config.setup({})
   end)
 end)

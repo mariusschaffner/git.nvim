@@ -53,7 +53,7 @@ end
 ---@return GitRepo
 function H.find(dir)
   local repo, err = H.await(function(done)
-    require("git.repo").find(dir, done)
+    require("git.core.repo").find(dir, done)
   end)
   return ok(repo, err)
 end
@@ -62,7 +62,7 @@ end
 function H.collect(dir)
   local repo = H.find(dir)
   local state, err = H.await(function(done)
-    require("git.collect").collect(repo, done)
+    require("git.status.collect").collect(repo, done)
   end)
   return ok(state, err)
 end

@@ -1,13 +1,14 @@
 # git.nvim
 
-An interactive git status dashboard for Neovim: branches, stashes, files and a commit graph in one view. You can stage, unstage, discard and open files, expand diffs inline and manage stashes, all without leaving the editor.
+An interactive git status dashboard for Neovim: branches, tags, stashes, files and a commit graph in one view. You can stage, unstage, discard and open files, expand diffs inline, inspect commits and manage stashes, all without leaving the editor.
 
 ```
 ┌── Branches ────────────────────────────────────────────────────────────────┐
-│  Nearest tag: v1.0-1-gbc8d9a4                                              │
 │  Remote: [v1] | origin/main | (git pull)                                   │
-│    <- 181024a upstream fix                                                 │
-│  HEAD:   [^4] | main (protected) | (git push | git reset --soft HEAD~4)    │
+│  HEAD:   [^2] | main (protected) | (git push | git reset --soft HEAD~2)    │
+└────────────────────────────────────────────────────────────────────────────┘
+┌── Tags ────────────────────────────────────────────────────────────────────┐
+│  Nearest tag: v1.0-2-gbc8d9a4                                              │
 └────────────────────────────────────────────────────────────────────────────┘
 ┌── Stashes ─────────────────────────────────────────────────────────────────┐
 │  Stashes: [1] | P pop · A apply · D drop · <CR> show                       │
@@ -18,15 +19,17 @@ An interactive git status dashboard for Neovim: branches, stashes, files and a c
 │   M keep.txt (+2 | -1)                                                     │
 │   R old.txt → new.txt (+0 | -0)                                            │
 │                                                                            │
-│  Unstaged changes (2) | s stage · X discard · <Tab> diff                   │
-│   M keep.txt (+1 | -0)                                                     │
+│  Unstaged changes (1) | s stage · X discard · <Tab> diff                   │
 │   M x.txt (+1 | -0)                                                        │
 │                                                                            │
 │  Untracked (1) | s stage · X delete · <Tab> diff                           │
 │   ?  my notes.md (new)                                                     │
 └────────────────────────────────────────────────────────────────────────────┘
 ┌── Graph ───────────────────────────────────────────────────────────────────┐
-│  ○ bc8d9a4 (HEAD -> main) add x                                            │
+│  ○ 181024a (origin/main) upstream fix                                      │
+│  │ ○ bc8d9a4 (HEAD -> main) add x                                          │
+│  │ ○ a1b2c3d refactor                                                      │
+│  ├─╯                                                                       │
 │  ● 149f297 (tag: v1.0) Merge branch 'feature'                              │
 │  ├─╮                                                                       │
 │  │ ○ d72be35 (feature) feature work                                        │
@@ -35,7 +38,9 @@ An interactive git status dashboard for Neovim: branches, stashes, files and a c
 │  ○ c682273 initial commit                                                  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
-(shown with `icons = false`; with a Nerd Font the labels get icons)
+(shown with `icons = false`; with a Nerd Font the labels get icons. Unpushed and incoming commits get a green / amber row background.)
+
+The view always fits its window: Files and Graph share the space below the other boxes and scroll on their own (`j`/`k` past a box edge, `<C-d>`/`<C-u>` & co., mouse wheel). While a diff is open only the Files box is shown; `<CR>` on a commit shows only the Graph (30%) and the commit's details (70%).
 
 ## Requirements
 
@@ -56,7 +61,17 @@ An interactive git status dashboard for Neovim: branches, stashes, files and a c
 }
 ```
 
-`setup()` is optional. The plugin defines `:GitStatus` at startup and loads its Lua modules on first use.
+`setup()` is optional. The plugin defines `:GitStatus` at startup and loads its Lua modules on first use. Shared options (`icons`, `timeout`) sit at the top level, dashboard options under `status`:
+
+```lua
+require("git").setup({
+  icons = false,
+  status = {
+    window = { kind = "split" },
+    keymaps = { discard = false },
+  },
+})
+```
 
 ## Usage
 
@@ -67,12 +82,12 @@ An interactive git status dashboard for Neovim: branches, stashes, files and a c
 | `s` / `u` | stage / unstage the file, a whole section (on its header), or a visual selection |
 | `X` | discard unstaged changes / delete untracked files (asks first) |
 | `<Tab>` / `=` | toggle inline diff |
-| `<CR>` | open file (on a diff line: at that line), commit or stash |
-| `o` / `v` / `t` | open in split / vsplit / tab |
+| `<CR>` | open file (on a diff line: at that line) or stash; on a commit: toggle its details box |
+| `o` / `v` / `t` | open in split / vsplit / tab (commits as `git show`) |
 | `P` / `A` / `D` | pop / apply / drop stash |
 | `]]` / `[[` | next / previous section |
 | `r` | refresh |
-| `q` / `<Esc>` | close (`<Esc>` only for floats) |
+| `q` / `<Esc>` | close the commit details if open, else the view (`<Esc>` only for floats) |
 | `?` | help |
 
 All options, keymaps and highlight groups are documented in [`:help git.nvim`](doc/git.txt).

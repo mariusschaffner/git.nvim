@@ -54,10 +54,10 @@ function M.check()
   else
     health.info("Using ASCII labels (`icons = false`).")
   end
-  if config.tags.check_remote then
+  if config.status.tags.check_remote then
     health.info(
-      "`tags.check_remote` is on: opening the view runs `git ls-remote` (network) at most every "
-        .. config.tags.cache_ttl
+      "`status.tags.check_remote` is on: opening the view runs `git ls-remote` (network) at most every "
+        .. config.status.tags.cache_ttl
         .. "s."
     )
   end
