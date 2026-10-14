@@ -300,7 +300,7 @@ function View:redraw(opts)
   vim.bo[buf].modifiable = false
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   for _, m in ipairs(r.marks) do
-    pcall(vim.api.nvim_buf_set_extmark, buf, ns, m.row, m.col, { end_col = m.end_col, hl_group = m.hl })
+    pcall(vim.api.nvim_buf_set_extmark, buf, ns, m.row, m.col, { end_col = m.end_col, hl_group = m.hl, priority = m.priority })
   end
 
   -- Keep the cursor on the same entry; on first render jump to the first file.

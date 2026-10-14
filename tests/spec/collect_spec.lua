@@ -100,7 +100,7 @@ describe("collect (real repositories)", function()
     eq({ "v1.0" }, s.tags.local_at_head)
   end)
 
-  it("tracks ahead/behind, remote commits and unpushed tags against an upstream", function()
+  it("tracks ahead/behind, incoming commits and unpushed tags against an upstream", function()
     local remote = H.repo()
     H.write(remote, "r", "1")
     H.commit(remote, "r1")
@@ -120,8 +120,14 @@ describe("collect (real repositories)", function()
     eq(1, s.branch.ahead)
     eq(1, s.branch.behind)
     eq("origin", s.remote)
-    eq("r2 upstream change", s.remote_commits[1].subject)
-    eq(true, s.unpushed[s.graph[1].hash])
+    -- the graph includes the upstream's incoming commit
+    local by_subject = {}
+    for _, c in ipairs(s.graph) do
+      by_subject[c.subject] = c.hash
+    end
+    eq(true, s.incoming[by_subject["r2 upstream change"]])
+    eq(true, s.unpushed[by_subject["local change"]])
+    eq(nil, s.incoming[by_subject["local change"]])
 
     -- the remote tag list is fetched on demand and cached
     local collect = require("git.collect")

@@ -10,6 +10,8 @@ describe("highlights", function()
     eq(nil, dim.italic)
     eq(true, vim.api.nvim_get_hl(0, { name = "GitStatusFile" }).italic)
     eq(0x808080, vim.api.nvim_get_hl(0, { name = "GitStatusBorder" }).fg)
+    ok(vim.api.nvim_get_hl(0, { name = "GitStatusUnpushedLine" }).bg)
+    eq(nil, vim.api.nvim_get_hl(0, { name = "GitStatusUnpushedLine" }).fg)
 
     -- colorscheme changes are picked up for our own groups
     vim.api.nvim_set_hl(0, "Comment", { fg = "#0000ff", italic = true })

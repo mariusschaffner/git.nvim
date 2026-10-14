@@ -15,7 +15,7 @@ local M = {}
 
 ---@class GitRendered
 ---@field lines string[]
----@field marks { row: integer, col: integer, end_col: integer, hl: string }[] 0-based row, byte columns
+---@field marks { row: integer, col: integer, end_col: integer, hl: string, priority: integer? }[] 0-based row, byte columns
 ---@field items table<integer, GitItem> 1-based line -> item
 ---@field sections integer[] 1-based lines of box titles and file section headers
 ---@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph"); only with a fixed height
@@ -122,7 +122,7 @@ function Builder:_push(text, marks, item)
   local row = #self.lines
   self.lines[row + 1] = text
   for _, m in ipairs(marks) do
-    self.marks[#self.marks + 1] = { row = row, col = m[1], end_col = m[2], hl = m[3] }
+    self.marks[#self.marks + 1] = { row = row, col = m[1], end_col = m[2], hl = m[3], priority = m.priority }
   end
   if item then
     self.items[row + 1] = item
@@ -157,7 +157,8 @@ end
 
 ---@param segs GitSeg[]
 ---@param item GitItem?
-function Builder:line(segs, item)
+---@param line_hl string? Background for the whole content area, below the segment highlights
+function Builder:line(segs, item, line_hl)
   local content_w = math.max(self.width - 4, 1)
   local left, right = "│ ", " │"
   local parts, marks = { left }, { { 0, #left, "GitStatusBorder" } }
@@ -185,11 +186,14 @@ function Builder:line(segs, item)
   end
   parts[#parts + 1] = right
   marks[#marks + 1] = { col, col + #right, "GitStatusBorder" }
+  if line_hl then
+    marks[#marks + 1] = { #left, col, line_hl, priority = 100 }
+  end
   return self:_push(table.concat(parts), marks, item)
 end
 
 ---@param title string
----@param content { segs: GitSeg[], item: GitItem?, section: boolean? }[]
+---@param content { segs: GitSeg[], item: GitItem?, section: boolean?, line_hl: string? }[]
 ---@param rows integer? Fixed number of content rows; content is windowed by `offset` and padded
 ---@param offset integer?
 ---@return integer? top 1-based line of the first content row
@@ -203,7 +207,7 @@ function Builder:box(title, content, rows, offset)
   offset = offset or 0
   for i = offset + 1, offset + rows do
     local c = content[i] or { segs = {} }
-    local lnum = self:line(c.segs, c.item)
+    local lnum = self:line(c.segs, c.item, c.line_hl)
     if c.section then
       self.sections[#self.sections + 1] = lnum
     end
@@ -224,7 +228,7 @@ local function branches(state)
   local function row(segs, item)
     out[#out + 1] = { segs = segs, item = item }
   end
-  local b, t = state.branch, state.tags
+  local b = state.branch
   local remote_label = { " " .. ic.remote .. "Remote: ", "GitStatusLabel" }
   if b.upstream and b.gone then
     row(add({
@@ -274,18 +278,7 @@ local function branches(state)
   if not b.detached and vim.tbl_contains(config.protected_branches, b.head) then
     add(head, { ic.protected, "GitStatusProtected" })
   end
-  -- The box is always just the Remote and HEAD rows, so tags and operations go on the HEAD row.
-  if t.at_head then
-    add(head, { "  " .. ic.tag .. "tag ", "GitStatusTagLabel" })
-    add(head, { t.at_head, "GitStatusTag" })
-  elseif t.nearest then
-    add(head, { "  " .. ic.tag .. "near ", "GitStatusTagLabel" })
-    add(head, { t.nearest, "GitStatusTagNearest" })
-  end
-  if #t.unpushed > 0 then
-    add(head, { "  " .. ic.unpushed_tag .. "unpushed ", "GitStatusTagLabel" })
-    add(head, { table.concat(t.unpushed, ", "), "GitStatusTagUnpushed" })
-  end
+  -- The box is always just the Remote and HEAD rows, so an operation in progress goes on the HEAD row.
   local op = state.operation and OPERATION[state.operation]
   if op then
     add(head, { "  " .. ic.warning .. op[1] .. " in progress", "GitStatusWarning" })
@@ -294,6 +287,27 @@ local function branches(state)
     add(head, hint({}, ("(git push | git reset --soft HEAD~%d)"):format(b.ahead)))
   end
   row(head)
+  return out
+end
+
+---@param state GitState
+local function tags(state)
+  local ic = require("git.config").icons()
+  local t = state.tags
+  local out = {}
+  if t.at_head then
+    out[1] = { segs = { { " " .. ic.tag .. "On tag:      ", "GitStatusTagLabel" }, { t.at_head, "GitStatusTag" } } }
+  elseif t.nearest then
+    out[1] = { segs = { { " " .. ic.tag .. "Nearest tag: ", "GitStatusTagLabel" }, { t.nearest, "GitStatusTagNearest" } } }
+  end
+  if #out > 0 and #t.unpushed > 0 then
+    out[2] = {
+      segs = {
+        { " " .. ic.unpushed_tag .. "Unpushed:    ", "GitStatusTagLabel" },
+        { table.concat(t.unpushed, ", "), "GitStatusTagUnpushed" },
+      },
+    }
+  end
   return out
 end
 
@@ -453,17 +467,23 @@ local function commit_graph(state)
   end
   for _, r in ipairs(graph.layout(state.graph)) do
     local segs = vim.list_extend({ { " " } }, r.segments)
-    local item
+    local item, line_hl
     local c = r.commit
     if c then
-      add(segs, { " " .. c.abbrev, state.unpushed[c.hash] and "GitStatusHashUnpushed" or "GitStatusHash" })
+      local hash_hl = "GitStatusHash"
+      if state.unpushed[c.hash] then
+        hash_hl, line_hl = "GitStatusHashUnpushed", "GitStatusUnpushedLine"
+      elseif state.incoming[c.hash] then
+        hash_hl, line_hl = "GitStatusHashIncoming", "GitStatusIncomingLine"
+      end
+      add(segs, { " " .. c.abbrev, hash_hl })
       if c.deco ~= "" then
         add(segs, { " (" .. c.deco .. ")", "GitStatusDeco" })
       end
       add(segs, { " " .. c.subject, "GitStatusSubject" })
       item = { kind = "commit", hash = c.hash }
     end
-    out[#out + 1] = { segs = segs, item = item }
+    out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
   end
   return out
 end
@@ -474,17 +494,17 @@ end
 ---@return GitRendered
 function M.render(state, opts)
   local b = Builder.new(opts.width)
-  local branch_rows, stash_rows = branches(state), stashes(state)
   local file_rows, graph_rows = files(state, opts), commit_graph(state)
-  b:box("Branches", branch_rows)
-  b:box("Stashes", stash_rows)
+  b:box("Branches", branches(state))
+  b:box("Tags", tags(state))
+  b:box("Stashes", stashes(state))
   if not opts.height then
     b:box("Files", file_rows)
     b:box("Graph", graph_rows)
     return { lines = b.lines, marks = b.marks, items = b.items, sections = b.sections, boxes = {}, scroll = {} }
   end
 
-  -- Fixed height: files and graph split what is left after the other boxes (each box has 2 border lines).
+  -- Fixed height: files and graph split what is left after the boxes above (each box has 2 border lines).
   local avail = opts.height - #b.lines
   local heights = { files = math.floor(avail / 2) }
   heights.graph = avail - heights.files

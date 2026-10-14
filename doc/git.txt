@@ -16,22 +16,25 @@ CONTENTS                                                        *git.nvim*
 1. INTRODUCTION                                         *git-introduction*
 
 git.nvim shows the state of the repository of the current file (or the
-current directory) in four panels:
+current directory) in up to five panels:
 
   Branches   always two rows: the upstream with its behind count, and HEAD
-             with its ahead count, nearest/exact tag, unpushed tags and any
-             merge/rebase in progress
+             with its ahead count and any merge/rebase in progress
+  Tags       the tag at HEAD or the nearest tag, and unpushed tags; only
+             shown when there is a tag
   Stashes    the most recent stash entries
   Files      conflicted, staged, unstaged and untracked files with +/- line
              counts; diffs can be expanded inline
-  Graph      a lane-based graph of the most recent commits
+  Graph      a lane-based graph of the most recent commits, including the
+             upstream's when it is ahead; unpushed and incoming (not yet
+             pulled) commits get a background color
 
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
-split the height left after Branches and Stashes evenly and scroll on their
+split the height left after Branches, Tags and Stashes evenly and scroll on their
 own: `j`/`k` past a box edge, `<C-e>` `<C-y>` `<C-d>` `<C-u>` `<C-f>` `<C-b>`
 (the box under the cursor, else the graph) and the mouse wheel (the box under
 the mouse). The bottom border shows the visible range when a box overflows.
@@ -112,7 +115,6 @@ Defaults: >lua
     protected_branches = { "main", "master" }, -- marked in the HEAD line
     graph = { max_commits = 12 },
     stash = { max = 5 },
-    remote_commits = { max = 10 }, -- incoming commits listed when behind
     diff = { max_lines = 500 },    -- per inline diff
     untracked_files = "normal",    -- "normal" | "all" | "no"
     tags = {
@@ -183,6 +185,9 @@ with |nvim_set_hl()| are left alone.
   GitStatusGraphMerge       merge node             -> Statement
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   -> Added
+  GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
+  GitStatusUnpushedLine     unpushed commit row    green background
+  GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ref names              -> String
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines

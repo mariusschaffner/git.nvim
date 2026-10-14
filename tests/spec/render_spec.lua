@@ -18,7 +18,7 @@ local function state(over)
     tags = { local_at_head = {}, unpushed = {} },
     stashes = {},
     files = { conflicted = {}, staged = {}, unstaged = {}, untracked = {} },
-    remote_commits = {},
+    incoming = {},
     unpushed = {},
     graph = {},
   }
@@ -153,16 +153,43 @@ describe("render", function()
     ok(hl, "unpushed hash highlighted")
   end)
 
-  it("keeps the branch box to the Remote and HEAD rows", function()
+  it("keeps the branch box to the Remote and HEAD rows, with tags in their own box", function()
     local s = state({
       branch = { behind = 2, upstream = "origin/main", ahead = 1 },
       tags = { nearest = "v1-2-gabc", unpushed = { "v2" } },
       operation = "rebase",
-      remote_commits = { { hash = "r1", abbrev = "r1", subject = "incoming" } },
     })
     local r = render.render(s, { width = 200 })
-    eq("Files", r.lines[5]:match("Files"))
-    matches("HEAD:.*near v1%-2%-gabc.*unpushed v2.*Rebase in progress", r.lines[3])
+    matches("HEAD:.*Rebase in progress", r.lines[3])
+    matches("Tags", r.lines[5])
+    matches("Nearest tag: v1%-2%-gabc", r.lines[6])
+    matches("Unpushed:    v2", r.lines[7])
+    matches("Files", r.lines[9])
+    -- no tag box without a tag
+    ok(not text(render.render(state(), { width = 200 })):find("Tags"))
+  end)
+
+  it("gives unpushed and incoming commit rows a background", function()
+    local s = state({
+      graph = {
+        { hash = "in", abbrev = "in", parents = { "base" }, deco = "origin/main", subject = "theirs" },
+        { hash = "out", abbrev = "out", parents = { "base" }, deco = "HEAD -> main", subject = "mine" },
+        { hash = "base", abbrev = "base", parents = {}, deco = "", subject = "base" },
+      },
+      unpushed = { out = true },
+      incoming = { ["in"] = true },
+    })
+    local r = render.render(s, { width = 80 })
+    local line_hl = {}
+    for _, m in ipairs(r.marks) do
+      if m.hl:match("Line$") then
+        local it = r.items[m.row + 1]
+        line_hl[it.hash] = m.hl
+        eq(#"│ ", m.col)
+        eq(#r.lines[m.row + 1] - #" │", m.end_col)
+      end
+    end
+    eq({ ["in"] = "GitStatusIncomingLine", out = "GitStatusUnpushedLine" }, line_hl)
   end)
 
   it("splits a fixed height evenly between files and graph and scrolls them", function()

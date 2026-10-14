@@ -8,7 +8,6 @@ local M = {}
 ---@field protected_branches string[]
 ---@field graph { max_commits: integer }
 ---@field stash { max: integer }
----@field remote_commits { max: integer }
 ---@field diff { max_lines: integer }
 ---@field untracked_files "normal"|"all"|"no"
 ---@field tags { check_remote: boolean, timeout: integer, cache_ttl: integer }
@@ -30,7 +29,6 @@ M.defaults = {
   protected_branches = { "main", "master" },
   graph = { max_commits = 12 },
   stash = { max = 5 },
-  remote_commits = { max = 10 },
   diff = { max_lines = 500 },
   untracked_files = "normal",
   tags = {
@@ -89,7 +87,7 @@ local function one_of(...)
 end
 
 local function validate(o)
-  for _, key in ipairs({ "window", "protected_branches", "graph", "stash", "remote_commits", "diff", "tags", "keymaps" }) do
+  for _, key in ipairs({ "window", "protected_branches", "graph", "stash", "diff", "tags", "keymaps" }) do
     check(key, o[key], "table")
   end
   for _, key in ipairs({ "icons", "auto_refresh", "hints" }) do
@@ -103,7 +101,6 @@ local function validate(o)
   check("window.height", o.window.height, "number")
   check("graph.max_commits", o.graph.max_commits, "number")
   check("stash.max", o.stash.max, "number")
-  check("remote_commits.max", o.remote_commits.max, "number")
   check("diff.max_lines", o.diff.max_lines, "number")
   check("tags.check_remote", o.tags.check_remote, "boolean")
   check("tags.timeout", o.tags.timeout, "number")
@@ -166,7 +163,6 @@ local NERD = {
   behind = "\u{ea9a} ",
   ahead = "\u{eaa1} ",
   protected = " \u{ea6c}",
-  remote_commit = "\u{f01da} ",
   stash = "\u{f187} ",
   warning = "\u{f071} ",
   conflicted = "\u{f467} ",
@@ -192,7 +188,6 @@ local ASCII = {
   behind = "v",
   ahead = "^",
   protected = " (protected)",
-  remote_commit = "<- ",
   stash = "",
   warning = "! ",
   conflicted = "",

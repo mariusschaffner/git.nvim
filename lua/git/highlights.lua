@@ -34,6 +34,7 @@ M.links = {
   GitStatusGraphMerge = "Statement",
   GitStatusHash = "Identifier",
   GitStatusHashUnpushed = "Added",
+  GitStatusHashIncoming = "DiagnosticWarn",
   GitStatusDeco = "String",
   GitStatusSubject = "Normal",
   GitStatusDiffAdd = "Added",
@@ -46,12 +47,22 @@ M.links = {
 -- Groups with fixed colors instead of a colorscheme source.
 M.colors = {
   GitStatusBorder = { fg = "#808080", ctermfg = 244 },
+  -- Background of whole graph rows; background only, so the row keeps its text colors.
+  GitStatusUnpushedLine = function()
+    return vim.o.background == "light" and { bg = "#c8ecc9", ctermbg = 194 } or { bg = "#264d2e", ctermbg = 22 }
+  end,
+  GitStatusIncomingLine = function()
+    return vim.o.background == "light" and { bg = "#f5dfa8", ctermbg = 223 } or { bg = "#5c4a1f", ctermbg = 58 }
+  end,
 }
 
 -- What setup() last applied per group, to tell our own definitions apart from user overrides.
 local applied = {}
 
 local function apply(group, spec)
+  if type(spec) == "function" then
+    spec = spec()
+  end
   local hl = type(spec) == "string" and vim.api.nvim_get_hl(0, { name = spec, link = false }) or vim.deepcopy(spec)
   hl.italic = false
   if hl.cterm then

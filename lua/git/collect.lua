@@ -21,9 +21,9 @@ local M = {}
 ---@field tags GitTags
 ---@field stashes GitStash[]
 ---@field files table<GitSection, GitFile[]>
----@field remote_commits GitCommit[] Commits on the upstream not yet in HEAD
+---@field incoming table<string, boolean> Hashes of commits on the upstream not yet in HEAD
 ---@field unpushed table<string, boolean> Hashes of commits not on the upstream (or on any remote)
----@field graph GitCommit[]
+---@field graph GitCommit[] HEAD's history, plus the upstream's when it has incoming commits
 
 -- Remote tag lists per repo/remote: { at = os.time(), tags = set }
 local remote_tag_cache = {}
@@ -104,7 +104,7 @@ function M.collect(repo, cb)
   local config = require("git.config").options
   local cwd = repo.root
   local status_res, staged_res, unstaged_res
-  local stashes, graph_commits, remotes = {}, {}, {}
+  local stashes, remotes = {}, {}
   local tags = { local_at_head = {}, unpushed = {} }
 
   local function git(args, on_done)
@@ -146,14 +146,6 @@ function M.collect(repo, cb)
         tags.local_at_head = util.lines(res.stdout)
       end
     end),
-    git(
-      { "log", "--topo-order", "-n", tostring(config.graph.max_commits), parse_log.FORMAT, "HEAD", "--" },
-      function(res)
-        if res.code == 0 then
-          graph_commits = parse_log.parse(res.stdout)
-        end
-      end
-    ),
     git({ "remote" }, function(res)
       if res.code == 0 then
         remotes = util.lines(res.stdout)
@@ -181,9 +173,9 @@ function M.collect(repo, cb)
       tags = tags,
       stashes = stashes,
       files = status.files,
-      remote_commits = {},
+      incoming = {},
       unpushed = {},
-      graph = graph_commits,
+      graph = {},
     }
 
     -- Second round: everything that depends on the branch/upstream.
@@ -198,17 +190,23 @@ function M.collect(repo, cb)
     end
     if not b.unborn then
       local has_upstream = b.upstream and not b.gone
-      if has_upstream and b.behind > 0 then
-        second[#second + 1] = git({
-          "log",
-          "-n",
-          tostring(config.remote_commits.max),
-          parse_log.FORMAT,
-          "HEAD..@{upstream}",
-          "--",
-        }, function(res)
+      local incoming = has_upstream and b.behind > 0
+      local log = { "log", "--topo-order", "-n", tostring(config.graph.max_commits), parse_log.FORMAT, "HEAD" }
+      if incoming then
+        log[#log + 1] = "@{upstream}"
+      end
+      log[#log + 1] = "--"
+      second[#second + 1] = git(log, function(res)
+        if res.code == 0 then
+          state.graph = parse_log.parse(res.stdout)
+        end
+      end)
+      if incoming then
+        second[#second + 1] = git({ "rev-list", "--max-count=1000", "HEAD..@{upstream}", "--" }, function(res)
           if res.code == 0 then
-            state.remote_commits = parse_log.parse(res.stdout)
+            for _, h in ipairs(util.lines(res.stdout)) do
+              state.incoming[h] = true
+            end
           end
         end)
       end
