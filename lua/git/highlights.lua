@@ -1,9 +1,9 @@
 local M = {}
 
--- Every group links to a standard group by default, so it follows the user's colorscheme.
--- Override any of them with `vim.api.nvim_set_hl(0, "GitStatus...", {...})`.
+-- Every group copies a standard group by default, so it follows the user's colorscheme, but never
+-- italic: the plugin renders no italic text. Override any group with `vim.api.nvim_set_hl(0, "GitStatus...", {...})`.
 M.links = {
-  GitStatusBorder = "FloatBorder",
+  GitStatusFloatTitle = "FloatTitle",
   GitStatusBoxTitle = "Title",
   GitStatusDim = "Comment",
   GitStatusLabel = "Keyword",
@@ -16,7 +16,6 @@ M.links = {
   GitStatusProtected = "DiagnosticError",
   GitStatusAhead = "DiagnosticInfo",
   GitStatusBehind = "DiagnosticWarn",
-  GitStatusRemoteCommit = "WarningMsg",
   GitStatusWarning = "WarningMsg",
   GitStatusStash = "Special",
   GitStatusSectionConflicted = "DiagnosticError",
@@ -44,9 +43,33 @@ M.links = {
   GitStatusDiffContext = "Normal",
 }
 
+-- Groups with fixed colors instead of a colorscheme source.
+M.colors = {
+  GitStatusBorder = { fg = "#808080", ctermfg = 244 },
+}
+
+-- What setup() last applied per group, to tell our own definitions apart from user overrides.
+local applied = {}
+
+local function apply(group, spec)
+  local hl = type(spec) == "string" and vim.api.nvim_get_hl(0, { name = spec, link = false }) or vim.deepcopy(spec)
+  hl.italic = false
+  if hl.cterm then
+    hl.cterm.italic = nil
+  end
+  vim.api.nvim_set_hl(0, group, hl)
+  applied[group] = vim.api.nvim_get_hl(0, { name = group })
+end
+
 function M.setup()
-  for group, link in pairs(M.links) do
-    vim.api.nvim_set_hl(0, group, { link = link, default = true })
+  for _, specs in ipairs({ M.links, M.colors }) do
+    for group, spec in pairs(specs) do
+      local cur = vim.api.nvim_get_hl(0, { name = group })
+      -- Only (re)define groups that are unset or still hold our own definition.
+      if vim.tbl_isempty(cur) or vim.deep_equal(cur, applied[group]) then
+        apply(group, spec)
+      end
+    end
   end
 end
 

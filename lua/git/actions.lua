@@ -389,6 +389,7 @@ function M.help(view)
     title_pos = "center",
     zindex = 60,
   })
+  vim.wo[win].winhighlight = "FloatTitle:GitStatusFloatTitle"
   for _, lhs in ipairs({ "q", "<Esc>", "?" }) do
     vim.keymap.set("n", lhs, function()
       pcall(vim.api.nvim_win_close, win, true)

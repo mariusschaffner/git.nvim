@@ -50,6 +50,8 @@ end
 describe("ui", function()
   local dir
   before_each(function()
+    -- Tall enough that the files and graph boxes show all entries without scrolling.
+    vim.o.lines = 80
     require("git.config").setup({ auto_refresh = false })
     dir = H.repo()
     H.write(dir, "tracked.txt", { "one" })
@@ -358,6 +360,37 @@ describe("ui", function()
       return view.closed
     end))
     eq(nil, ui.current)
+  end)
+
+  it("fits the window and scrolls inside the boxes instead", function()
+    for i = 1, 30 do
+      H.write(dir, ("f%02d.txt"):format(i), "x")
+    end
+    vim.o.lines = 30
+    local view = open(dir, "float")
+    local height = vim.api.nvim_win_get_height(view.win)
+    eq(height, vim.api.nvim_buf_line_count(view.buf))
+    local files = view.rendered.boxes.files
+    local graph = view.rendered.boxes.graph
+    ok(files.total > files.rows, "files overflow their box")
+    -- branch box: title, Remote, HEAD, bottom
+    eq(5, files.top - 1)
+    ok(math.abs((files.rows + 2) - (graph.rows + 2)) <= 1, "files and graph share the rest evenly")
+
+    -- j on the last visible row scrolls the box, the window stays put
+    local last = files.top + files.rows - 1
+    vim.api.nvim_win_set_cursor(view.win, { last, 0 })
+    local below = view.rendered.items[last]
+    vim.api.nvim_feedkeys("j", "x", false)
+    eq(1, view.rendered.boxes.files.offset)
+    eq(last, vim.api.nvim_win_get_cursor(view.win)[1])
+    local key = require("git.render").item_key
+    eq(key(below), key(view.rendered.items[last - 1]))
+    eq(1, vim.fn.line("w0", view.win))
+
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-e>", true, false, true), "x", false)
+    eq(2, view.rendered.boxes.files.offset)
+    eq(1, vim.fn.line("w0", view.win))
   end)
 
   it("auto-refreshes when the index changes", function()

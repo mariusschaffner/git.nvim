@@ -1,0 +1,19 @@
+local highlights = require("git.highlights")
+
+describe("highlights", function()
+  it("never defines italic groups and keeps user overrides", function()
+    vim.api.nvim_set_hl(0, "Comment", { fg = "#00ff00", italic = true })
+    vim.api.nvim_set_hl(0, "GitStatusFile", { fg = "#123456", italic = true })
+    highlights.setup()
+    local dim = vim.api.nvim_get_hl(0, { name = "GitStatusDim" })
+    eq(0x00ff00, dim.fg)
+    eq(nil, dim.italic)
+    eq(true, vim.api.nvim_get_hl(0, { name = "GitStatusFile" }).italic)
+    eq(0x808080, vim.api.nvim_get_hl(0, { name = "GitStatusBorder" }).fg)
+
+    -- colorscheme changes are picked up for our own groups
+    vim.api.nvim_set_hl(0, "Comment", { fg = "#0000ff", italic = true })
+    highlights.setup()
+    eq(0x0000ff, vim.api.nvim_get_hl(0, { name = "GitStatusDim" }).fg)
+  end)
+end)

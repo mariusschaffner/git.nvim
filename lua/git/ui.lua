@@ -17,6 +17,7 @@ M.ns = ns
 ---@field state GitState?
 ---@field rendered GitRendered?
 ---@field expanded table<string, string[]>
+---@field scroll table<string, integer> Scroll offsets of the files/graph boxes
 ---@field generation integer
 ---@field augroup integer
 ---@field closed boolean
@@ -69,6 +70,8 @@ local WIN_OPTS = {
   cursorline = true,
   colorcolumn = "",
   statuscolumn = "",
+  scrolloff = 0,
+  winhighlight = "FloatTitle:GitStatusFloatTitle",
   winfixbuf = true,
 }
 
@@ -88,6 +91,7 @@ function View.new(repo, kind)
     kind = kind,
     prev_win = vim.api.nvim_get_current_win(),
     expanded = {},
+    scroll = {},
     generation = 0,
     closed = false,
     fetching_tags = false,
@@ -117,6 +121,7 @@ function View.new(repo, kind)
   end)
 
   require("git.actions").attach(self)
+  self:_motions()
   self:_autocmds()
   if config.options.auto_refresh then
     self.watcher = require("git.watch").start(repo.gitdir, self.schedule_refresh)
@@ -156,6 +161,19 @@ function View:_autocmds()
         vim.api.nvim_win_set_config(self.win, float_config(self.repo))
       end
       self:redraw()
+    end,
+  })
+  -- The buffer always fits the window; only the boxes scroll, never the window itself.
+  au("WinScrolled", {
+    pattern = tostring(self.win),
+    callback = function()
+      if self:valid() and vim.api.nvim_buf_line_count(self.buf) <= vim.api.nvim_win_get_height(self.win) then
+        vim.api.nvim_win_call(self.win, function()
+          if vim.fn.line("w0") ~= 1 then
+            vim.fn.winrestview({ topline = 1 })
+          end
+        end)
+      end
     end,
   })
   au("WinResized", {
@@ -254,18 +272,27 @@ function View:items(l1, l2)
 end
 
 --- Re-render the current state into the buffer (no git calls).
-function View:redraw()
+---@param opts { keep_row: boolean? }? keep_row: leave the cursor on its screen row instead of following its entry
+function View:redraw(opts)
   if not self:valid() or not self.state then
     return
   end
+  opts = opts or {}
   local width = vim.api.nvim_win_get_width(self.win)
   local old_items = self.rendered and self.rendered.items or {}
   local cursor = vim.api.nvim_win_get_cursor(self.win)
   local first_render = self.rendered == nil
-  local key = render.item_key(old_items[cursor[1]])
+  local key = not opts.keep_row and render.item_key(old_items[cursor[1]]) or nil
 
-  local r = render.render(self.state, { width = width, expanded = self.expanded })
+  local r = render.render(self.state, {
+    width = width,
+    height = vim.api.nvim_win_get_height(self.win),
+    expanded = self.expanded,
+    scroll = self.scroll,
+    focus = key,
+  })
   self.rendered = r
+  self.scroll = r.scroll
 
   local buf = self.buf
   vim.bo[buf].modifiable = true
@@ -288,6 +315,111 @@ function View:redraw()
   end
   target = target or math.min(cursor[1], #r.lines)
   pcall(vim.api.nvim_win_set_cursor, self.win, { target, target == cursor[1] and cursor[2] or 0 })
+  vim.api.nvim_win_call(self.win, function()
+    vim.fn.winrestview({ topline = 1 })
+  end)
+end
+
+--- Name and layout of the scrollable box showing line `lnum`.
+---@param lnum integer
+---@return string?, GitBox?
+function View:box_at(lnum)
+  for name, b in pairs(self.rendered and self.rendered.boxes or {}) do
+    if lnum >= b.top and lnum < b.top + b.rows then
+      return name, b
+    end
+  end
+end
+
+--- Scroll a box by `delta` content rows; the cursor stays on its screen row.
+---@param name string
+---@param delta integer
+---@return boolean scrolled
+function View:scroll_box(name, delta)
+  local b = self.rendered and self.rendered.boxes[name]
+  if not b then
+    return false
+  end
+  local offset = math.max(math.min(b.offset + delta, b.total - b.rows), 0)
+  if offset == b.offset then
+    return false
+  end
+  self.scroll[name] = offset
+  self:redraw({ keep_row = true })
+  return true
+end
+
+--- Box to scroll for scroll keys: the one under the cursor, else the graph.
+function View:_scroll_target()
+  local name = self:box_at(vim.api.nvim_win_get_cursor(self.win)[1])
+  return name or "graph"
+end
+
+--- j/k scroll a box when moving past its visible edge; scroll keys and the mouse wheel scroll boxes, not the window.
+function View:_motions()
+  local function map(lhs, fn)
+    vim.keymap.set("n", lhs, fn, { buffer = self.buf, nowait = true, silent = true, desc = "git.nvim: scroll" })
+  end
+  local function move(dir, key)
+    return function()
+      for _ = 1, vim.v.count1 do
+        local lnum = vim.api.nvim_win_get_cursor(self.win)[1]
+        local name, b = self:box_at(lnum)
+        local edge = b and lnum == (dir > 0 and b.top + b.rows - 1 or b.top)
+        if not (edge and self:scroll_box(name, dir)) then
+          vim.cmd("normal! " .. key)
+        end
+      end
+    end
+  end
+  map("j", move(1, "j"))
+  map("<Down>", move(1, "j"))
+  map("k", move(-1, "k"))
+  map("<Up>", move(-1, "k"))
+
+  local function rows()
+    local b = self.rendered and self.rendered.boxes[self:_scroll_target()]
+    return b and b.rows or 1
+  end
+  local scrolls = {
+    ["<C-e>"] = function()
+      return 1
+    end,
+    ["<C-y>"] = function()
+      return -1
+    end,
+    ["<C-d>"] = function()
+      return math.max(math.floor(rows() / 2), 1)
+    end,
+    ["<C-u>"] = function()
+      return -math.max(math.floor(rows() / 2), 1)
+    end,
+    ["<C-f>"] = rows,
+    ["<C-b>"] = function()
+      return -rows()
+    end,
+    ["<PageDown>"] = rows,
+    ["<PageUp>"] = function()
+      return -rows()
+    end,
+  }
+  for lhs, amount in pairs(scrolls) do
+    map(lhs, function()
+      self:scroll_box(self:_scroll_target(), amount() * vim.v.count1)
+    end)
+  end
+
+  for lhs, dir in pairs({ ["<ScrollWheelDown>"] = 1, ["<ScrollWheelUp>"] = -1 }) do
+    map(lhs, function()
+      local pos = vim.fn.getmousepos()
+      if pos.winid ~= self.win then
+        -- Over another window: keep the default wheel behavior there.
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "n", false)
+        return
+      end
+      self:scroll_box(self:box_at(pos.line) or "graph", 3 * dir)
+    end)
+  end
 end
 
 --- Fetch fresh state from git and redraw. Results of superseded refreshes are discarded.

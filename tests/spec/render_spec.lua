@@ -153,6 +153,39 @@ describe("render", function()
     ok(hl, "unpushed hash highlighted")
   end)
 
+  it("keeps the branch box to the Remote and HEAD rows", function()
+    local s = state({
+      branch = { behind = 2, upstream = "origin/main", ahead = 1 },
+      tags = { nearest = "v1-2-gabc", unpushed = { "v2" } },
+      operation = "rebase",
+      remote_commits = { { hash = "r1", abbrev = "r1", subject = "incoming" } },
+    })
+    local r = render.render(s, { width = 200 })
+    eq("Files", r.lines[5]:match("Files"))
+    matches("HEAD:.*near v1%-2%-gabc.*unpushed v2.*Rebase in progress", r.lines[3])
+  end)
+
+  it("splits a fixed height evenly between files and graph and scrolls them", function()
+    local files = {}
+    for i = 1, 20 do
+      files[i] = { path = "f" .. i, code = "?", section = "untracked" }
+    end
+    local s = state({
+      files = { untracked = files },
+      graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "", subject = "first" } },
+    })
+    local r = render.render(s, { width = 60, height = 20, scroll = { files = 3 } })
+    eq(20, #r.lines)
+    -- 4 branch lines, then 8 + 8 lines for files and graph
+    eq({ top = 6, rows = 6, offset = 3, total = 21 }, r.boxes.files)
+    eq({ top = 14, rows = 6, offset = 0, total = 1 }, r.boxes.graph)
+    matches("4%-9/21", r.lines[12])
+    -- focusing an item scrolls it into view
+    r = render.render(s, { width = 60, height = 20, focus = "file:untracked:f20" })
+    eq(15, r.scroll.files)
+    eq("f20", r.items[11].file.path)
+  end)
+
   it("omits hints when disabled", function()
     config.setup({ icons = false, hints = false })
     local r = render.render(state({ files = { unstaged = { { path = "x", code = "M", section = "unstaged" } } } }), {

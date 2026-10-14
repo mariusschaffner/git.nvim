@@ -18,8 +18,9 @@ CONTENTS                                                        *git.nvim*
 git.nvim shows the state of the repository of the current file (or the
 current directory) in four panels:
 
-  Branches   nearest/exact tag, unpushed tags, merge/rebase in progress,
-             upstream with ahead/behind counts and incoming commits, HEAD
+  Branches   always two rows: the upstream with its behind count, and HEAD
+             with its ahead count, nearest/exact tag, unpushed tags and any
+             merge/rebase in progress
   Stashes    the most recent stash entries
   Files      conflicted, staged, unstaged and untracked files with +/- line
              counts; diffs can be expanded inline
@@ -28,6 +29,12 @@ current directory) in four panels:
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
+
+The view always fits its window and never scrolls as a whole. Files and Graph
+split the height left after Branches and Stashes evenly and scroll on their
+own: `j`/`k` past a box edge, `<C-e>` `<C-y>` `<C-d>` `<C-u>` `<C-f>` `<C-b>`
+(the box under the cursor, else the graph) and the mouse wheel (the box under
+the mouse). The bottom border shows the visible range when a box overflows.
 
 ==============================================================================
 2. REQUIREMENTS                                         *git-requirements*
@@ -146,10 +153,12 @@ reported and the previous configuration is kept.
 ==============================================================================
 7. HIGHLIGHTS                                              *git-highlights*
 
-All groups are defined with `default = true` and link to standard groups,
-so they follow the colorscheme. Override them with |nvim_set_hl()|.
+All groups copy a standard group, so they follow the colorscheme, but with
+italic removed: the plugin shows no italic text. Groups you define yourself
+with |nvim_set_hl()| are left alone.
 
-  GitStatusBorder           box borders            -> FloatBorder
+  GitStatusBorder           box borders            grey (#808080)
+  GitStatusFloatTitle       float window title     -> FloatTitle
   GitStatusBoxTitle         box titles             -> Title
   GitStatusDim              hints, zero counts     -> Comment
   GitStatusLabel            Remote:, HEAD: ...     -> Keyword
@@ -162,7 +171,6 @@ so they follow the colorscheme. Override them with |nvim_set_hl()|.
   GitStatusProtected        protected marker       -> DiagnosticError
   GitStatusAhead            ahead count            -> DiagnosticInfo
   GitStatusBehind           behind count           -> DiagnosticWarn
-  GitStatusRemoteCommit     incoming commits       -> WarningMsg
   GitStatusWarning          operation in progress  -> WarningMsg
   GitStatusStash            stash entries          -> Special
   GitStatusSection{Conflicted,Staged,Unstaged,Untracked}   section headers
