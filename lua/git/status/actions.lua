@@ -557,6 +557,7 @@ M.descriptions = {
   commit = "Commit / amend",
   revert = "Revert commit",
   reword = "Reword unpushed commit",
+  fetch = "Fetch",
   commit_submit = "Commit",
   commit_abort = "Cancel",
   close = "Close",
@@ -576,6 +577,7 @@ M.order = {
   "stash_drop",
   "revert",
   "reword",
+  "fetch",
   "commit_submit",
   "commit_abort",
   "help",
@@ -583,7 +585,7 @@ M.order = {
 
 -- Actions listed in the help per box (see `GitRendered.regions`), followed by `help`.
 M.contexts = {
-  branches = {},
+  branches = { "fetch" },
   tags = {},
   stashes = { "stash_pop", "stash_apply", "stash_drop", "open" },
   files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open" },
@@ -778,6 +780,12 @@ function M.attach(view)
       "n",
       function()
         M.reword(view)
+      end,
+    },
+    fetch = {
+      "n",
+      function()
+        view:fetch()
       end,
     },
     close = {

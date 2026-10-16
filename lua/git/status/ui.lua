@@ -34,6 +34,8 @@ M.ns = ns
 ---@field augroup integer
 ---@field closed boolean
 ---@field fetching_tags boolean
+---@field fetch_timer uv_timer_t? Runs the spinner while `git fetch` runs
+---@field fetch_frame integer?
 ---@field watcher { stop: fun() }?
 ---@field schedule_refresh fun()
 ---@field cancel_refresh fun()
@@ -217,6 +219,7 @@ function View:_cleanup()
   self.closed = true
   self.generation = self.generation + 1
   self.cancel_refresh()
+  self:_stop_fetch_spinner()
   self:_close_editor()
   if self.watcher then
     self.watcher.stop()
@@ -305,6 +308,7 @@ function View:redraw(opts)
     expanded = self.expanded,
     commit = self.commit,
     compose = self.editor and (self.editor.title or true),
+    fetching = self.fetch_frame and M.spinner()[self.fetch_frame],
     scroll = self.scroll,
     focus = key,
   })
@@ -528,6 +532,66 @@ function View:submit_commit(cb)
     table.insert(args, 2, "--amend")
   end
   runner.mutate(args, { cwd = self.repo.root, stdin = msg }, done)
+end
+
+--- Spinner frames for the current icon setting.
+---@return string[]
+function M.spinner()
+  if config.options.icons then
+    return { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+  end
+  return { "|", "/", "-", "\\" }
+end
+
+function View:_stop_fetch_spinner()
+  if self.fetch_timer then
+    self.fetch_timer:stop()
+    self.fetch_timer:close()
+    self.fetch_timer = nil
+  end
+  self.fetch_frame = nil
+end
+
+--- `git fetch` the current branch's remote (or the default one); a spinner shows in the Branches box meanwhile.
+---@param cb fun(ok: boolean)?
+function View:fetch(cb)
+  if self.fetch_timer then
+    return
+  end
+  if not self.state or #self.state.remotes == 0 then
+    util.notify("No remote to fetch from")
+    return
+  end
+  local uv = vim.uv or vim.loop
+  self.fetch_frame = 1
+  self.fetch_timer = uv.new_timer()
+  self.fetch_timer:start(
+    100,
+    100,
+    vim.schedule_wrap(function()
+      if self.fetch_frame and self:valid() then
+        self.fetch_frame = self.fetch_frame % #M.spinner() + 1
+        self:redraw({ keep_row = true })
+      end
+    end)
+  )
+  self:redraw({ keep_row = true })
+  local runner = require("git.core.runner")
+  local timeout = config.options.status.fetch_timeout
+  runner.run({ "fetch", "--quiet" }, { cwd = self.repo.root, write = true, timeout = timeout }, function(res)
+    self:_stop_fetch_spinner()
+    if self.closed then
+      return
+    end
+    if res.code ~= 0 then
+      util.notify(runner.error_message(res), vim.log.levels.ERROR)
+    end
+    self:refresh(function()
+      if cb then
+        cb(res.code == 0)
+      end
+    end)
+  end)
 end
 
 --- Show a commit's details in a box below the graph (in place of the files); again on the same commit hides it.

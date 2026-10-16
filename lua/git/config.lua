@@ -10,6 +10,7 @@ local M = {}
 ---@field diff { max_lines: integer }
 ---@field untracked_files "normal"|"all"|"no"
 ---@field tags { check_remote: boolean, timeout: integer, cache_ttl: integer }
+---@field fetch_timeout integer
 ---@field auto_refresh boolean
 ---@field refresh_debounce integer
 ---@field hints boolean
@@ -43,6 +44,7 @@ M.defaults = {
       timeout = 5000,
       cache_ttl = 60,
     },
+    fetch_timeout = 60000, -- ms, `git fetch` needs the network
     auto_refresh = true,
     refresh_debounce = 150,
     hints = true,
@@ -60,6 +62,7 @@ M.defaults = {
       commit_amend = "a", -- amend the last commit with the staged changes
       revert = "r",
       reword = "R", -- change the message of an unpushed commit
+      fetch = "f",
       close = { "q", "<Esc>" },
       help = "?",
       -- In the commit message editor:
@@ -107,6 +110,7 @@ local function validate(o)
     check("status." .. key, s[key], "boolean")
   end
   check("status.refresh_debounce", s.refresh_debounce, "number")
+  check("status.fetch_timeout", s.fetch_timeout, "number")
   check("status.untracked_files", s.untracked_files, one_of("normal", "all", "no"), '"normal", "all" or "no"')
   local kinds = one_of("float", "split", "vsplit", "tab")
   check("status.window.kind", s.window.kind, kinds, '"float", "split", "vsplit" or "tab"')

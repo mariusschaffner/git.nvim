@@ -143,13 +143,13 @@ local function lanes_layout(commits)
   return rows
 end
 
---- Number of leading commits that are unpushed and form a straight line onto the next (pushed) commit.
+--- Number of leading commits that are in `set` and form a straight line onto the next commit.
 ---@param commits GitCommit[]
----@param unpushed table<string, true>
+---@param set table<string, true>
 ---@return integer
-local function unpushed_run(commits, unpushed)
+local function tip_run(commits, set)
   local n = 0
-  while commits[n + 1] and unpushed[commits[n + 1].hash] do
+  while commits[n + 1] and set[commits[n + 1].hash] do
     n = n + 1
   end
   if n == 0 or n == #commits then
@@ -166,15 +166,19 @@ end
 
 ---@class GitGraphOpts
 ---@field unpushed table<string, true>? Unpushed commits: when they are the straight tip of the history, they
---- are drawn on a side lane that joins the pushed history at the upstream commit
+--- are drawn on a side lane to the right that joins the pushed history at the upstream commit
+---@field incoming table<string, true>? Incoming (not yet pulled) commits: the same, mirrored: they stay on the
+--- left lane and join the local history, which moves one lane to the right
 
 ---@param commits GitCommit[] In topological order, newest first
 ---@param opts GitGraphOpts?
 ---@return GitGraphRow[]
 function M.layout(commits, opts)
-  local n = unpushed_run(commits, opts and opts.unpushed or {})
+  opts = opts or {}
+  local n = tip_run(commits, opts.unpushed or {})
   if n == 0 then
-    return lanes_layout(commits)
+    local m = tip_run(commits, opts.incoming or {})
+    return m > 0 and M._incoming_layout(commits, m) or lanes_layout(commits)
   end
   local rows = {}
   for i = 1, n do
@@ -187,6 +191,25 @@ function M.layout(commits, opts)
   rows[#rows + 1] = { segments = { { "├", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "╯", "GitStatusGraph" } } }
   local rest = lanes_layout(vim.list_slice(commits, n + 1))
   rest[1].fresh = false -- the junction above leads into it
+  return vim.list_extend(rows, rest)
+end
+
+--- `m` incoming commits at the tip on the left lane, joining (╰─┤) the local history one lane to the right.
+---@param commits GitCommit[]
+---@param m integer
+---@return GitGraphRow[]
+function M._incoming_layout(commits, m)
+  local rows = {}
+  for i = 1, m do
+    rows[i] = { segments = { { M.COMMIT, "GitStatusGraphIncoming" } }, commit = commits[i], fresh = i == 1 }
+  end
+  rows[#rows + 1] = { segments = { { "╰", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "┤", "GitStatusGraph" } } }
+  local rest = lanes_layout(vim.list_slice(commits, m + 1))
+  rest[1].fresh = false -- the junction above leads into it
+  for _, row in ipairs(rest) do
+    table.insert(row.segments, 1, { " ", "GitStatusGraph" })
+    table.insert(row.segments, 1, { " ", "GitStatusGraph" })
+  end
   return vim.list_extend(rows, rest)
 end
 

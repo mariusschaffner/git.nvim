@@ -4,8 +4,8 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 
 ```
 ╭── Branches ────────────────────────────────────────────────────────────────╮
-│  Remote: [v1] | origin/main | (git pull)                                   │
-│  HEAD:   [^2] | main (protected) | (git push | git reset --soft HEAD~2)    │
+│  Remote: [v1] | origin/main                                                │
+│  HEAD:   [^2] | main (protected)                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Tags ────────────────────────────────────────────────────────────────────╮
 │  Nearest tag: v1.0-2-gbc8d9a4                                              │
@@ -42,7 +42,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │  ○ c682273 initial commit                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
-(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed commits are marked `!` and incoming ones get an amber row background. Unpushed commits on top of the upstream are drawn on a side lane that joins the upstream commit, until they are pushed.)
+(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed and incoming commits are marked `!`, incoming ones also get an amber row background. Unpushed commits on top of the upstream are drawn on a side lane to the right that joins the upstream commit until they are pushed; incoming commits on top of HEAD stay on the left lane and your local history moves right (`╰─┤`) until you pull.)
 
 The view always fits its window: Files and Graph share the space below the other boxes and scroll on their own (`j`/`k` past a box edge, `<C-d>`/`<C-u>` & co., mouse wheel). While a diff is open only the Files box is shown; `<CR>` on a commit shows only the Graph (30%) and the commit's details (70%).
 
@@ -92,6 +92,7 @@ require("git").setup({
 | `c a` | amend the last commit with the staged changes, editing its message |
 | `r` | on a commit in the graph: revert it (asks first) |
 | `R` | on an unpushed commit in the graph: change its message |
+| `f` | fetch (a spinner shows in the Branches box meanwhile) |
 | `q` / `<Esc>` | close the commit editor or details if open, else the view (`<Esc>` only for floats) |
 | `?` | help: the keymaps of the box under the cursor |
 

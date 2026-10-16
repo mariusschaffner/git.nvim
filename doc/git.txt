@@ -32,9 +32,12 @@ current directory) in up to five panels:
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
-Unpushed commits are marked with `!`. When they sit on top of the upstream
-branch, they are drawn on a side lane that joins the upstream commit
-(`├─╯`); once pushed, the graph is a straight line again.
+Unpushed and incoming (fetched, not yet pulled) commits are marked with `!`.
+Unpushed commits on top of the upstream branch are drawn on a side lane to
+the right that joins the upstream commit (`├─╯`); incoming commits on top of
+your HEAD stay on the left lane and join your local history, which moves
+one lane to the right (`╰─┤`). Once pushed / pulled, the graph is a straight
+line again.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
 split the height left after Branches, Tags and Stashes evenly and scroll on their
@@ -114,6 +117,8 @@ Buffer-local mappings in the status view (press `?` for this list):
             last commit is amended; for an older one it and the commits
             above it are recreated. Staged and unstaged changes stay as
             they are.
+  f         Fetch (`git fetch`) the branch's remote; a spinner shows in the
+            Branches box meanwhile, then incoming commits show in the graph.
   q <Esc>   Close the commit message editor or the commit details if open,
             else the view. <Esc> only closes floating views.
   ?         Show the keymaps of the box under the cursor (in the commit
@@ -160,6 +165,7 @@ Defaults: >lua
         timeout = 5000,
         cache_ttl = 60,
       },
+      fetch_timeout = 60000, -- ms, for `git fetch` (network)
       auto_refresh = true, -- refresh on index/HEAD changes, writes, focus
       refresh_debounce = 150,
       hints = true,        -- show key and git command hints in the panels
@@ -177,6 +183,7 @@ Defaults: >lua
         commit_amend = "a",    --   amend the last commit
         revert = "r",
         reword = "R",          -- change an unpushed commit's message
+        fetch = "f",
         close = { "q", "<Esc>" },
         help = "?",
         -- In the commit message editor:
@@ -226,6 +233,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusGraphCommit      commit node            -> Function
   GitStatusGraphMerge       merge node             -> Statement
   GitStatusGraphUnpushed    unpushed node and !    -> Added
+  GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   -> Added
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn

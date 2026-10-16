@@ -41,6 +41,7 @@ local M = {}
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
 ---@field commit GitCommitDetails? Commit details to show; replaces the files box
+---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
 ---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
 --- box; the UI overlays an editor
 
@@ -52,11 +53,11 @@ local SECTION_LABEL = {
 }
 
 local OPERATION = {
-  merge = { "Merge", "(git merge --continue | --abort)" },
-  rebase = { "Rebase", "(git rebase --continue | --skip | --abort)" },
-  ["cherry-pick"] = { "Cherry-pick", "(git cherry-pick --continue | --abort)" },
-  revert = { "Revert", "(git revert --continue | --abort)" },
-  bisect = { "Bisect", "(git bisect good | bad | reset)" },
+  merge = "Merge",
+  rebase = "Rebase",
+  ["cherry-pick"] = "Cherry-pick",
+  revert = "Revert",
+  bisect = "Bisect",
 }
 
 local DIM = "GitStatusDim"
@@ -230,7 +231,9 @@ function Builder:box(title, content, rows, offset, label)
 end
 
 ---@param state GitState
-local function branches(state)
+---@param state GitState
+---@param opts GitRenderOpts
+local function branches(state, opts)
   local config = require("git.config").options.status
   local ic = require("git.config").icons()
   local out = {}
@@ -239,37 +242,29 @@ local function branches(state)
   end
   local b = state.branch
   local remote_label = { " " .. ic.remote .. "Remote: ", "GitStatusLabel" }
+  local remote
   if b.upstream and b.gone then
-    row(add({
-      remote_label,
-      { b.upstream, "GitStatusUpstream" },
-      { " (gone)", "GitStatusWarning" },
-    }, hint({}, "(git branch --unset-upstream)")))
+    remote = { remote_label, { b.upstream, "GitStatusUpstream" }, { " (gone)", "GitStatusWarning" } }
   elseif not b.upstream then
-    local segs = { remote_label }
+    remote = { remote_label }
     if b.detached then
-      add(segs, { "detached HEAD", DIM })
+      add(remote, { "detached HEAD", DIM })
     elseif #state.remotes == 0 then
-      add(segs, { "no remote", DIM })
+      add(remote, { "no remote", DIM })
     else
-      add(segs, { "no upstream", DIM })
-      local remote = state.remote or (vim.tbl_contains(state.remotes, "origin") and "origin") or state.remotes[1]
-      add(segs, hint({}, ("(git push -u %s %s)"):format(remote, b.head)))
+      add(remote, { "no upstream", DIM })
     end
-    row(segs)
-  elseif b.behind > 0 then
-    row(add({
-      remote_label,
-      { "[" .. ic.behind .. b.behind .. "]", "GitStatusBehind" },
-      { " | " .. b.upstream, "GitStatusUpstream" },
-    }, hint({}, "(git pull)")))
   else
-    row(add({
+    remote = {
       remote_label,
-      { "[" .. ic.behind .. "0]", DIM },
+      { "[" .. ic.behind .. b.behind .. "]", b.behind > 0 and "GitStatusBehind" or DIM },
       { " | " .. b.upstream, "GitStatusUpstream" },
-    }, hint({}, "(git fetch)")))
+    }
   end
+  if opts.fetching then
+    add(remote, { "  " .. opts.fetching .. " fetching…", DIM })
+  end
+  row(remote)
 
   local name
   if b.detached then
@@ -290,10 +285,7 @@ local function branches(state)
   -- The box is always just the Remote and HEAD rows, so an operation in progress goes on the HEAD row.
   local op = state.operation and OPERATION[state.operation]
   if op then
-    add(head, { "  " .. ic.warning .. op[1] .. " in progress", "GitStatusWarning" })
-    add(head, hint({}, op[2]))
-  elseif b.ahead > 0 then
-    add(head, hint({}, ("(git push | git reset --soft HEAD~%d)"):format(b.ahead)))
+    add(head, { "  " .. ic.warning .. op .. " in progress", "GitStatusWarning" })
   end
   row(head)
   return out
@@ -473,7 +465,7 @@ local function commit_graph(state)
     end
     return out
   end
-  for _, r in ipairs(graph.layout(state.graph, { unpushed = state.unpushed })) do
+  for _, r in ipairs(graph.layout(state.graph, { unpushed = state.unpushed, incoming = state.incoming })) do
     local segs = vim.list_extend({ { " " } }, r.segments)
     local item, line_hl
     local c = r.commit
@@ -484,6 +476,7 @@ local function commit_graph(state)
         add(segs, { " !", "GitStatusGraphUnpushed" })
       elseif state.incoming[c.hash] then
         hash_hl, line_hl = "GitStatusHashIncoming", "GitStatusIncomingLine"
+        add(segs, { " !", "GitStatusGraphIncoming" })
       end
       add(segs, { " " .. c.abbrev, hash_hl })
       add(segs, { " " .. c.subject, "GitStatusSubject" })
@@ -565,7 +558,7 @@ function M.render(state, opts)
     return top
   end
   if overview then
-    box("branches", "Branches", branches(state))
+    box("branches", "Branches", branches(state, opts))
     box("tags", "Tags", tags(state))
     box("stashes", "Stashes", stashes(state))
   end

@@ -35,6 +35,7 @@ M.links = {
   GitStatusGraphCommit = "Function",
   GitStatusGraphMerge = "Statement",
   GitStatusGraphUnpushed = "Added",
+  GitStatusGraphIncoming = "DiagnosticWarn",
   GitStatusHash = "Identifier",
   GitStatusHashUnpushed = "Added",
   GitStatusHashIncoming = "DiagnosticWarn",
