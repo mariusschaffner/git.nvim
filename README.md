@@ -1,6 +1,6 @@
 # git.nvim
 
-An interactive git status dashboard for Neovim: branches, tags, stashes, files and a commit graph in one view. You can stage, unstage, discard and open files, expand diffs inline, inspect commits and manage stashes, all without leaving the editor.
+An interactive git status dashboard for Neovim: branches, tags, stashes, files and a commit graph in one view. You can stage, unstage, discard and open files, expand diffs inline, commit with an inline message editor, inspect and revert commits and manage stashes, all without leaving the editor.
 
 ```
 ┌── Branches ────────────────────────────────────────────────────────────────┐
@@ -15,7 +15,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │    stash@{0} On main: experiment                                           │
 └────────────────────────────────────────────────────────────────────────────┘
 ┌── Files ───────────────────────────────────────────────────────────────────┐
-│  Staged changes (2) | u unstage · <Tab> diff · (git commit)                │
+│  Staged changes (2) | u unstage · <Tab> diff · c commit                    │
 │   M keep.txt (+2 | -1)                                                     │
 │   R old.txt → new.txt (+0 | -0)                                            │
 │                                                                            │
@@ -85,10 +85,12 @@ require("git").setup({
 | `<CR>` | open file (on a diff line: at that line) or stash; on a commit: toggle its details box |
 | `o` / `v` / `t` | open in split / vsplit / tab (commits as `git show`) |
 | `P` / `A` / `D` | pop / apply / drop stash |
+| `c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft) |
+| `r` | on a commit in the graph: revert it (asks first) |
 | `]]` / `[[` | next / previous section |
-| `r` | refresh |
-| `q` / `<Esc>` | close the commit details if open, else the view (`<Esc>` only for floats) |
-| `?` | help |
+| `R` | refresh |
+| `q` / `<Esc>` | close the commit editor or details if open, else the view (`<Esc>` only for floats) |
+| `?` | help: the keymaps of the box under the cursor |
 
 All options, keymaps and highlight groups are documented in [`:help git.nvim`](doc/git.txt).
 

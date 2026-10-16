@@ -18,8 +18,10 @@ local M = {}
 ---@field marks { row: integer, col: integer, end_col: integer, hl: string, priority: integer? }[] 0-based row, byte columns
 ---@field items table<integer, GitItem> 1-based line -> item
 ---@field sections integer[] 1-based lines of box titles and file section headers
----@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit"); only with a fixed height
+---@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit"); only with a fixed height,
+--- except "compose", which is always present while composing
 ---@field scroll table<string, integer> Final scroll offsets of the scrollable boxes
+---@field regions { name: string, first: integer, last: integer }[] 1-based line range of every box, borders included
 
 ---@class GitBox
 ---@field top integer 1-based line of the first visible content row
@@ -34,6 +36,7 @@ local M = {}
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
 ---@field commit { hash: string, lines: string[] }? Commit details to show; replaces the files box
+---@field compose boolean? Show an empty "Commit message" box in place of the files box (the UI overlays an editor)
 
 local SECTION_LABEL = {
   conflicted = "Conflicted",
@@ -51,6 +54,9 @@ local OPERATION = {
 }
 
 local DIM = "GitStatusDim"
+
+-- Content rows of the commit message box when the view has no fixed height.
+M.COMPOSE_ROWS = 6
 
 --- Stable identity of an item, used to keep the cursor on the same entry across refreshes.
 ---@param item GitItem?
@@ -197,8 +203,9 @@ end
 ---@param content { segs: GitSeg[], item: GitItem?, section: boolean?, line_hl: string? }[]
 ---@param rows integer? Fixed number of content rows; content is windowed by `offset` and padded
 ---@param offset integer?
+---@param label string? Bottom border label when the content is not scrolled
 ---@return integer? top 1-based line of the first content row
-function Builder:box(title, content, rows, offset)
+function Builder:box(title, content, rows, offset, label)
   if #content == 0 and not rows then
     return
   end
@@ -213,7 +220,6 @@ function Builder:box(title, content, rows, offset)
       self.sections[#self.sections + 1] = lnum
     end
   end
-  local label
   if #content > rows then
     label = (" %d-%d/%d "):format(offset + 1, math.min(offset + rows, #content), #content)
   end
@@ -382,7 +388,7 @@ local function files(state, opts)
 
   local section_hints = {
     conflicted = hint({ { "stage", "mark resolved" }, { "toggle_diff", "diff" } }, "(git mergetool)"),
-    staged = hint({ { "unstage", "unstage" }, { "toggle_diff", "diff" } }, "(git commit)"),
+    staged = hint({ { "unstage", "unstage" }, { "toggle_diff", "diff" }, { "commit", "commit" } }),
     unstaged = hint({ { "stage", "stage" }, { "discard", "discard" }, { "toggle_diff", "diff" } }),
     untracked = hint({ { "stage", "stage" }, { "discard", "delete" }, { "toggle_diff", "diff" } }),
   }
@@ -506,6 +512,23 @@ local function commit_details(commit)
   return out
 end
 
+--- " k1 commit · k2 cancel " for the commit message box's bottom border.
+---@return string?
+local function compose_label()
+  local config = require("git.config")
+  if not config.options.status.hints then
+    return nil
+  end
+  local parts = {}
+  for _, p in ipairs({ { "commit_submit", "commit" }, { "commit_abort", "cancel" } }) do
+    local key = config.key(p[1])
+    if key then
+      parts[#parts + 1] = key .. " " .. p[2]
+    end
+  end
+  return #parts > 0 and (" " .. table.concat(parts, " · ") .. " ") or nil
+end
+
 --- Render the full status view.
 ---@param state GitState
 ---@param opts GitRenderOpts
@@ -514,37 +537,70 @@ function M.render(state, opts)
   local b = Builder.new(opts.width)
   -- Commit details show only the graph and the commit; open diffs show only the files.
   -- Otherwise the fixed boxes come first and files and graph share the rest.
-  local overview = not opts.commit and not next(opts.expanded or {})
+  -- While composing a commit message, its box takes the place of the files box.
+  local commit = not opts.compose and opts.commit or nil
+  local overview = not commit and not next(opts.expanded or {})
+  local regions = {}
+  --- b:box, recording the box's line range under `name`.
+  local function box(name, ...)
+    local first = #b.lines + 1
+    local top = b:box(...)
+    if #b.lines >= first then
+      regions[#regions + 1] = { name = name, first = first, last = #b.lines }
+    end
+    return top
+  end
   if overview then
-    b:box("Branches", branches(state))
-    b:box("Tags", tags(state))
-    b:box("Stashes", stashes(state))
+    box("branches", "Branches", branches(state))
+    box("tags", "Tags", tags(state))
+    box("stashes", "Stashes", stashes(state))
   end
 
   -- The scrollable boxes, as { name, title, rows, height } (height incl. the 2 border lines).
   local avail = (opts.height or 0) - #b.lines
   local layout
-  if opts.commit then
+  if commit then
     local g = math.floor(avail * 0.3)
     layout = {
       { "graph", "Graph", commit_graph(state), g },
-      { "commit", "Commit " .. opts.commit.hash:sub(1, 8), commit_details(opts.commit), avail - g },
+      { "commit", "Commit " .. commit.hash:sub(1, 8), commit_details(commit), avail - g },
     }
-  elseif not overview then
-    layout = { { "files", "Files", files(state, opts), avail } }
   else
-    local f = math.floor(avail / 2)
-    layout = { { "files", "Files", files(state, opts), f }, { "graph", "Graph", commit_graph(state), avail - f } }
-  end
-
-  if not opts.height then
-    for _, spec in ipairs(layout) do
-      b:box(spec[2], spec[3])
+    local first = { "files", "Files", files(state, opts) }
+    if opts.compose then
+      local n = #state.files.staged
+      first = { "compose", ("Commit message (%d staged file%s)"):format(n, n == 1 and "" or "s"), {} }
     end
-    return { lines = b.lines, marks = b.marks, items = b.items, sections = b.sections, boxes = {}, scroll = {} }
+    if not overview then
+      first[4] = avail
+      layout = { first }
+    else
+      first[4] = math.floor(avail / 2)
+      layout = { first, { "graph", "Graph", commit_graph(state), avail - first[4] } }
+    end
   end
 
   local boxes, scroll = {}, {}
+  if not opts.height then
+    for _, spec in ipairs(layout) do
+      if spec[1] == "compose" then
+        local top = box("compose", spec[2], spec[3], M.COMPOSE_ROWS, 0, compose_label())
+        boxes.compose = { top = top, rows = M.COMPOSE_ROWS, offset = 0, total = 0 }
+      else
+        box(spec[1], spec[2], spec[3])
+      end
+    end
+    return {
+      lines = b.lines,
+      marks = b.marks,
+      items = b.items,
+      sections = b.sections,
+      boxes = boxes,
+      scroll = scroll,
+      regions = regions,
+    }
+  end
+
   for _, spec in ipairs(layout) do
     local name, content = spec[1], spec[3]
     local rows = math.max(spec[4] - 2, 1)
@@ -558,11 +614,19 @@ function M.render(state, opts)
       end
     end
     offset = math.max(math.min(offset, #content - rows), 0)
-    local top = b:box(spec[2], content, rows, offset)
+    local top = box(name, spec[2], content, rows, offset, name == "compose" and compose_label() or nil)
     boxes[name] = { top = top, rows = rows, offset = offset, total = #content }
     scroll[name] = offset
   end
-  return { lines = b.lines, marks = b.marks, items = b.items, sections = b.sections, boxes = boxes, scroll = scroll }
+  return {
+    lines = b.lines,
+    marks = b.marks,
+    items = b.items,
+    sections = b.sections,
+    boxes = boxes,
+    scroll = scroll,
+    regions = regions,
+  }
 end
 
 return M

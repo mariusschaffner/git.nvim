@@ -20,6 +20,8 @@ M.ns = ns
 ---@field expanded table<string, string[]>
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit { hash: string, lines: string[] }? Commit shown in the details box
+---@field editor { buf: integer, win: integer?, lines: string[]? }? Commit message editor, overlaid on the "compose" box
+---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
 ---@field augroup integer
 ---@field closed boolean
@@ -207,6 +209,7 @@ function View:_cleanup()
   self.closed = true
   self.generation = self.generation + 1
   self.cancel_refresh()
+  self:_close_editor()
   if self.watcher then
     self.watcher.stop()
   end
@@ -291,6 +294,7 @@ function View:redraw(opts)
     height = vim.api.nvim_win_get_height(self.win),
     expanded = self.expanded,
     commit = self.commit,
+    compose = self.editor ~= nil,
     scroll = self.scroll,
     focus = key,
   })
@@ -321,6 +325,182 @@ function View:redraw(opts)
   vim.api.nvim_win_call(self.win, function()
     vim.fn.winrestview({ topline = 1 })
   end)
+  self:_place_editor()
+end
+
+--- Open (or reposition) the editor window over the content rows of the "compose" box.
+function View:_place_editor()
+  local ed = self.editor
+  local box = ed and self.rendered and self.rendered.boxes.compose
+  if not box then
+    return
+  end
+  local cfg = {
+    relative = "win",
+    win = self.win,
+    row = box.top - 1,
+    col = 2,
+    width = math.max(vim.api.nvim_win_get_width(self.win) - 4, 1),
+    height = box.rows,
+  }
+  if ed.win and vim.api.nvim_win_is_valid(ed.win) then
+    vim.api.nvim_win_set_config(ed.win, cfg)
+    return
+  end
+  cfg.style = "minimal"
+  cfg.border = "none"
+  cfg.zindex = 51 -- above the view's float
+  ed.win = vim.api.nvim_open_win(ed.buf, false, cfg)
+  vim.wo[ed.win].wrap = true
+  if self.kind ~= "float" then
+    vim.wo[ed.win].winhighlight = "NormalFloat:Normal"
+  end
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = self.augroup,
+    pattern = tostring(ed.win),
+    once = true,
+    callback = function()
+      -- Closed by the user (e.g. :q): cancel, keeping the draft. The buffer is wiped right after.
+      if vim.api.nvim_buf_is_valid(ed.buf) then
+        ed.lines = vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false)
+      end
+      vim.schedule(function()
+        if self.editor == ed then
+          self:stop_commit()
+        end
+      end)
+    end,
+  })
+end
+
+function View:_close_editor()
+  local ed = self.editor
+  self.editor = nil
+  if not ed then
+    return
+  end
+  if ed.win and vim.api.nvim_win_is_valid(ed.win) then
+    pcall(vim.api.nvim_win_close, ed.win, true)
+  end
+  if vim.api.nvim_buf_is_valid(ed.buf) then
+    pcall(vim.api.nvim_buf_delete, ed.buf, { force = true })
+  end
+end
+
+--- Turn the files box into a commit message editor. `:w` or commit_submit commits the staged changes.
+function View:start_commit()
+  if self.editor then
+    if self.editor.win and vim.api.nvim_win_is_valid(self.editor.win) then
+      vim.api.nvim_set_current_win(self.editor.win)
+    end
+    return
+  end
+  if not self.state or #self.state.files.staged == 0 then
+    util.notify("Nothing staged to commit")
+    return
+  end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype = "acwrite"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].swapfile = false
+  pcall(vim.api.nvim_buf_set_name, buf, "gitcommit://" .. self.repo.root)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, self.draft or { "" })
+  vim.bo[buf].modified = false
+  self.editor = { buf = buf }
+  self.commit = nil
+
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = self.augroup,
+    buffer = buf,
+    callback = function()
+      self:submit_commit()
+    end,
+  })
+  local function map(modes, action, fn)
+    for _, lhs in ipairs(config.keys(action)) do
+      vim.keymap.set(modes, lhs, fn, { buffer = buf, nowait = true, silent = true, desc = "git.nvim: " .. action })
+    end
+  end
+  map({ "n", "i" }, "commit_submit", function()
+    vim.cmd("stopinsert")
+    self:submit_commit()
+  end)
+  map("n", "commit_abort", function()
+    self:stop_commit()
+  end)
+  map("n", "help", function()
+    require("git.status.actions").help(self, "compose")
+  end)
+
+  self:redraw()
+  if not (self.editor and self.editor.win) then
+    self:_close_editor()
+    return
+  end
+  vim.api.nvim_set_current_win(self.editor.win)
+  vim.bo[buf].filetype = "gitcommit"
+  if not self.draft then
+    vim.cmd("startinsert")
+  end
+end
+
+--- Leave the commit message editor. The message is kept as a draft unless `discard`.
+---@param discard boolean?
+function View:stop_commit(discard)
+  local ed = self.editor
+  if not ed then
+    return
+  end
+  if discard then
+    self.draft = nil
+  else
+    local lines = vim.api.nvim_buf_is_valid(ed.buf) and vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false) or ed.lines
+    self.draft = lines and vim.trim(table.concat(lines, "\n")) ~= "" and lines or nil
+  end
+  self:_close_editor()
+  if self:valid() then
+    vim.cmd("stopinsert")
+    self:focus()
+    self:redraw()
+  end
+end
+
+--- Commit the staged changes with the editor's message.
+---@param cb fun(ok: boolean)?
+function View:submit_commit(cb)
+  local ed = self.editor
+  if not ed or not vim.api.nvim_buf_is_valid(ed.buf) then
+    return
+  end
+  local msg = table.concat(vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false), "\n")
+  if vim.trim(msg) == "" then
+    util.notify("Empty commit message", vim.log.levels.WARN)
+    if cb then
+      cb(false)
+    end
+    return
+  end
+  vim.bo[ed.buf].modified = false
+  local runner = require("git.core.runner")
+  runner.mutate(
+    { "commit", "--quiet", "--cleanup=whitespace", "--file=-" },
+    { cwd = self.repo.root, stdin = msg .. "\n" },
+    function(res)
+      local ok = res.code == 0
+      if not ok then
+        util.notify(runner.error_message(res), vim.log.levels.ERROR)
+      elseif self.editor == ed then
+        self:stop_commit(true)
+      else
+        -- The editor was closed meanwhile (e.g. :wq); its message is committed, not a draft.
+        self.draft = nil
+      end
+      self:refresh()
+      if cb then
+        cb(ok)
+      end
+    end
+  )
 end
 
 --- Show a commit's details in a box below the graph (in place of the files); again on the same commit hides it.

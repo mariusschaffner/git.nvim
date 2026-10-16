@@ -58,11 +58,16 @@ M.defaults = {
       stash_pop = "P",
       stash_apply = "A",
       stash_drop = "D",
+      commit = "c",
+      revert = "r",
       next_section = "]]",
       prev_section = "[[",
-      refresh = "r",
+      refresh = "R",
       close = { "q", "<Esc>" },
       help = "?",
+      -- In the commit message editor:
+      commit_submit = "<C-s>", -- normal and insert mode; `:w` commits too
+      commit_abort = { "q", "<Esc>" }, -- normal mode; the draft is kept
     },
   },
 }
