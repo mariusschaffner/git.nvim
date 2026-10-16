@@ -41,7 +41,8 @@ local M = {}
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
 ---@field commit GitCommitDetails? Commit details to show; replaces the files box
----@field compose boolean? Show an empty "Commit message" box in place of the files box (the UI overlays an editor)
+---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
+--- box; the UI overlays an editor
 
 local SECTION_LABEL = {
   conflicted = "Conflicted",
@@ -582,7 +583,9 @@ function M.render(state, opts)
     local first = { "files", "Files", files(state, opts) }
     if opts.compose then
       local n = #state.files.staged
-      first = { "compose", ("Commit message (%d staged file%s)"):format(n, n == 1 and "" or "s"), {} }
+      local title = type(opts.compose) == "string" and opts.compose
+        or ("Commit message (%d staged file%s)"):format(n, n == 1 and "" or "s")
+      first = { "compose", title, {} }
     end
     if not overview then
       first[4] = avail

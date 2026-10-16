@@ -101,12 +101,19 @@ Buffer-local mappings in the status view (press `?` for this list):
             the top of the graph, `q` back to the commit. On several commits
             selected in Visual mode: show them combined (each header, then
             one diff from the oldest one's parent to the newest).
-  t         Open in a new tab (commits as `git show`).
   P A D     Pop / apply / drop the stash under the cursor (drop asks first).
-  c         Commit the staged changes: the files box turns into an editable
-            commit message box (filetype `gitcommit`).
+  c         Commit menu: a popup lists the next key, which picks
+              c c   commit the staged changes: the files box turns into an
+                    editable commit message box (filetype `gitcommit`)
+              c a   amend the last commit with the staged changes (or only
+                    its message), starting from its message; asks first
+                    when the commit is pushed already
   r         On a commit in the graph: revert it (`git revert`, asks first;
             merge commits are reverted against their first parent).
+  R         On an unpushed commit in the graph: change its message. The
+            last commit is amended; for an older one it and the commits
+            above it are recreated. Staged and unstaged changes stay as
+            they are.
   q <Esc>   Close the commit message editor or the commit details if open,
             else the view. <Esc> only closes floating views.
   ?         Show the keymaps of the box under the cursor (in the commit
@@ -114,10 +121,11 @@ Buffer-local mappings in the status view (press `?` for this list):
 
 In the commit message editor:
 
-  <C-s> :w  Commit (normal and insert mode). The message is used as typed,
-            `#` lines included; only surrounding blank lines are dropped.
-  q <Esc>   Cancel (normal mode). The message is kept as a draft and comes
-            back on the next `c`.
+  <C-s> :w  Commit / amend / reword (normal and insert mode). The message
+            is used as typed, `#` lines included; only surrounding blank
+            lines are dropped.
+  q <Esc>   Cancel (normal mode). A new commit's message is kept as a
+            draft and comes back on the next `c c`.
 
 The view's buffer has 'filetype' `gitstatus`, so a |FileType| autocommand
 can add further mappings.
@@ -161,12 +169,14 @@ Defaults: >lua
         discard = "X",
         toggle_diff = { "<Tab>", "=" },
         open = "<CR>",
-        open_tab = "t",
         stash_pop = "P",
         stash_apply = "A",
         stash_drop = "D",
-        commit = "c",
+        commit = "c",          -- commit menu; the next key picks:
+        commit_create = "c",   --   commit the staged changes
+        commit_amend = "a",    --   amend the last commit
         revert = "r",
+        reword = "R",          -- change an unpushed commit's message
         close = { "q", "<Esc>" },
         help = "?",
         -- In the commit message editor:

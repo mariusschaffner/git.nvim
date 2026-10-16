@@ -172,39 +172,34 @@ end
 
 --- Move to the window files should be opened in. Closes the float first.
 ---@param view GitView
----@param cmd "edit"|"split"|"vsplit"|"tabedit"
----@return string cmd The command to run in the target window
-local function goto_target(view, cmd)
+---@return "edit"|"vsplit" cmd How to open in the target window
+local function goto_target(view)
   local prev = view.prev_win
   if view.kind == "float" then
     view:close()
   end
   if prev and vim.api.nvim_win_is_valid(prev) and prev ~= view.win then
     vim.api.nvim_set_current_win(prev)
-  elseif cmd == "edit" and vim.api.nvim_get_current_win() == view.win then
+  elseif vim.api.nvim_get_current_win() == view.win then
     -- The view window is pinned to its buffer (winfixbuf); open next to it instead.
     return "vsplit"
   end
-  return cmd
+  return "edit"
 end
 
+--- Open the file (on a diff line: at that line) or stash; toggle a commit's details.
 ---@param view GitView
----@param cmd "edit"|"tabedit"
 ---@param item GitItem?
-function M.open(view, cmd, item)
+function M.open(view, item)
   item = item or view:item()
   if not item then
     return
   end
   if item.kind == "commit" then
-    if cmd == "edit" then
-      view:toggle_commit(item.hash)
-    else
-      M.show(view, { "show", "--stat", "--patch", "--format=fuller", item.hash }, "git://show/" .. item.hash, cmd)
-    end
+    view:toggle_commit(item.hash)
     return
   elseif item.kind == "stash" then
-    M.show(view, { "stash", "show", "--stat", "--patch", item.stash.ref }, "git://stash/" .. item.stash.ref, cmd)
+    M.show(view, { "stash", "show", "--stat", "--patch", item.stash.ref }, "git://stash/" .. item.stash.ref)
     return
   elseif item.kind == "section" then
     return
@@ -222,7 +217,7 @@ function M.open(view, cmd, item)
     local diff = view.expanded[require("git.status.render").diff_key(f)]
     lnum = diff and M.diff_target_line(diff, item.diff_line)
   end
-  local run = goto_target(view, cmd)
+  local run = goto_target(view)
   vim.cmd((lnum and (run .. " +" .. lnum .. " ") or (run .. " ")) .. vim.fn.fnameescape(path))
 end
 
@@ -240,7 +235,7 @@ function M.open_items(view, items)
   if #hashes > 1 then
     view:toggle_commits(hashes)
   elseif items[1] then
-    M.open(view, "edit", items[1])
+    M.open(view, items[1])
   end
 end
 
@@ -248,8 +243,7 @@ end
 ---@param view GitView
 ---@param args string[]
 ---@param name string
----@param cmd "edit"|"split"|"vsplit"|"tabedit"
-function M.show(view, args, name, cmd)
+function M.show(view, args, name)
   runner.run(args, { cwd = view.repo.root }, function(res)
     if res.code ~= 0 then
       util.notify(runner.error_message(res), vim.log.levels.ERROR)
@@ -262,9 +256,7 @@ function M.show(view, args, name, cmd)
     for i, l in ipairs(lines) do
       lines[i] = l:gsub("[\r\n]", "")
     end
-    local run = goto_target(view, cmd)
-    local open = ({ edit = "enew", split = "new", vsplit = "vnew", tabedit = "tabnew" })[run] or "new"
-    vim.cmd(open)
+    vim.cmd(goto_target(view) == "vsplit" and "vnew" or "enew")
     local buf = vim.api.nvim_get_current_buf()
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
@@ -300,9 +292,194 @@ function M.stash(view, op)
   end)
 end
 
+--- The commit menu: a popup lists the follow-up keys (commit / amend) and the next key picks one.
 ---@param view GitView
 function M.commit(view)
+  local entries = {}
+  for _, e in ipairs({ { "commit_create", "commit", M.create }, { "commit_amend", "amend", M.amend } }) do
+    local key = config.key(e[1])
+    if key then
+      entries[#entries + 1] = { key = key, label = e[2], fn = e[3] }
+    end
+  end
+  local lines, width = {}, 0
+  for i, e in ipairs(entries) do
+    lines[i] = (" %s  %s "):format(e.key, e.label)
+    width = math.max(width, vim.fn.strdisplaywidth(lines[i]))
+  end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].bufhidden = "wipe"
+  for i, e in ipairs(entries) do
+    vim.api.nvim_buf_set_extmark(buf, vim.api.nvim_create_namespace("git.nvim.menu"), i - 1, 1, {
+      end_col = 1 + #e.key,
+      hl_group = "GitStatusLabel",
+    })
+  end
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "cursor",
+    row = 1,
+    col = 0,
+    width = math.max(width, 10),
+    height = #lines,
+    style = "minimal",
+    border = "rounded",
+    title = " Commit ",
+    title_pos = "center",
+    focusable = false,
+    zindex = 60,
+    noautocmd = true,
+  })
+  vim.wo[win].winhighlight = "FloatTitle:GitStatusFloatTitle,FloatBorder:GitStatusBorder"
+  vim.cmd("redraw")
+  local ok, char = pcall(vim.fn.getcharstr)
+  pcall(vim.api.nvim_win_close, win, true)
+  if not ok then
+    return
+  end
+  for _, e in ipairs(entries) do
+    if char == vim.api.nvim_replace_termcodes(e.key, true, false, true) then
+      e.fn(view)
+      return
+    end
+  end
+end
+
+--- Commit the staged changes: the files box turns into a message editor.
+---@param view GitView
+function M.create(view)
   view:start_commit()
+end
+
+--- Amend the last commit with the staged changes, editing its message. Asks first when it is pushed already.
+---@param view GitView
+function M.amend(view)
+  local state = view.state
+  if not state or state.branch.unborn or not state.branch.oid then
+    util.notify("No commit to amend yet")
+    return
+  end
+  local head = state.branch.oid
+  local pushed = (state.branch.upstream or #state.remotes > 0) and not state.unpushed[head]
+  if
+    pushed
+    and vim.fn.confirm(
+        ("%s is pushed already. Amending rewrites it.\nAmend anyway?"):format(head:sub(1, 8)),
+        "&Amend\n&Cancel",
+        2,
+        "Warning"
+      )
+      ~= 1
+  then
+    return
+  end
+  require("git.core.queries").commit_message(view.repo, head, function(lines, err)
+    if not lines then
+      util.notify(err or "git log failed", vim.log.levels.ERROR)
+      return
+    end
+    local n = #state.files.staged
+    local title = n > 0 and ("Amend %s (+%d staged file%s)"):format(head:sub(1, 8), n, n == 1 and "" or "s")
+      or ("Amend %s (message only)"):format(head:sub(1, 8))
+    view:start_commit({ mode = "amend", lines = lines, title = title })
+  end)
+end
+
+--- Change the message of the unpushed commit under the cursor.
+---@param view GitView
+function M.reword(view)
+  local item = view:item()
+  if not item or item.kind ~= "commit" then
+    util.notify("Move the cursor to a commit in the graph first")
+    return
+  end
+  if not (view.state and view.state.unpushed[item.hash]) then
+    util.notify("Only unpushed commits can be reworded", vim.log.levels.WARN)
+    return
+  end
+  require("git.core.queries").commit_message(view.repo, item.hash, function(lines, err)
+    if not lines then
+      util.notify(err or "git log failed", vim.log.levels.ERROR)
+      return
+    end
+    view:start_commit({
+      mode = "reword",
+      hash = item.hash,
+      lines = lines,
+      title = ("Reword %s"):format(item.hash:sub(1, 8)),
+    })
+  end)
+end
+
+--- Replace the message of `hash`, an ancestor of HEAD (or HEAD itself). HEAD is amended (staged changes stay
+--- staged). An older commit is recreated with the new message, the commits between it and HEAD are recreated
+--- on top of it (same trees, authors and messages), and the branch is moved there with `reset --soft`: the
+--- index and work tree are never touched.
+---@param view GitView
+---@param hash string
+---@param msg string
+---@param cb fun(res: GitResult)
+function M.set_message(view, hash, msg, cb)
+  local cwd = view.repo.root
+  local head = view.state and view.state.branch.oid
+  if hash == head then
+    local args = { "commit", "--amend", "--only", "--quiet", "--cleanup=whitespace", "--file=-" }
+    runner.mutate(args, { cwd = cwd, stdin = msg }, cb)
+    return
+  end
+  -- The commit itself, then its descendants up to HEAD, parents before children.
+  local format = "--format=%H%x00%an%x00%ae%x00%ad%x00%T%x00%P%x00%B%x1e"
+  local function commits(range, done)
+    local args = { "log", "--date=raw", format, "--reverse", "--topo-order" }
+    vim.list_extend(args, range)
+    vim.list_extend(args, { "--" })
+    runner.run(args, { cwd = cwd }, function(res)
+      if res.code ~= 0 then
+        return cb(res)
+      end
+      local out = {}
+      for _, rec in ipairs(vim.split(res.stdout, "\30", { plain = true })) do
+        rec = rec:gsub("^[\r\n]+", "")
+        if rec ~= "" then
+          local f = vim.split(rec, "\0", { plain = true })
+          out[#out + 1] = {
+            hash = f[1],
+            env = { GIT_AUTHOR_NAME = f[2], GIT_AUTHOR_EMAIL = f[3], GIT_AUTHOR_DATE = f[4] },
+            tree = f[5],
+            parents = vim.split(f[6], " ", { trimempty = true }),
+            msg = table.concat(f, "\0", 7),
+          }
+        end
+      end
+      done(out)
+    end)
+  end
+  commits({ "-1", hash }, function(target)
+    commits({ "--ancestry-path", hash .. "..HEAD" }, function(above)
+      target[1].msg = msg
+      local todo = vim.list_extend(target, above)
+      local new = {} -- old hash -> recreated hash
+      local function step(i)
+        local c = todo[i]
+        if not c then
+          return runner.mutate({ "reset", "--soft", "--quiet", new[todo[#todo].hash] }, { cwd = cwd }, cb)
+        end
+        local args = { "commit-tree", c.tree }
+        for _, parent in ipairs(c.parents) do
+          vim.list_extend(args, { "-p", new[parent] or parent })
+        end
+        vim.list_extend(args, { "-F", "-" })
+        runner.mutate(args, { cwd = cwd, stdin = c.msg, env = c.env }, function(res)
+          if res.code ~= 0 then
+            return cb(res)
+          end
+          new[c.hash] = vim.trim(res.stdout)
+          step(i + 1)
+        end)
+      end
+      step(1)
+    end)
+  end)
 end
 
 --- Revert the commit under the cursor (`git revert`), after confirmation. Merges are reverted against
@@ -374,14 +551,14 @@ M.descriptions = {
   discard = "Discard",
   toggle_diff = "Toggle diff",
   open = "Open",
-  open_tab = "Open in tab",
   stash_pop = "Pop stash",
   stash_apply = "Apply stash",
   stash_drop = "Drop stash",
-  commit = "Commit staged",
+  commit = "Commit / amend",
   revert = "Revert commit",
+  reword = "Reword unpushed commit",
   commit_submit = "Commit",
-  commit_abort = "Cancel, keep draft",
+  commit_abort = "Cancel",
   close = "Close",
   help = "Help",
 }
@@ -394,11 +571,11 @@ M.order = {
   "toggle_diff",
   "commit",
   "open",
-  "open_tab",
   "stash_pop",
   "stash_apply",
   "stash_drop",
   "revert",
+  "reword",
   "commit_submit",
   "commit_abort",
   "help",
@@ -408,26 +585,18 @@ M.order = {
 M.contexts = {
   branches = {},
   tags = {},
-  stashes = { "stash_pop", "stash_apply", "stash_drop", "open", "open_tab" },
-  files = {
-    "stage",
-    "unstage",
-    "discard",
-    "toggle_diff",
-    "commit",
-    "open",
-    "open_tab",
-  },
-  graph = { "open", "open_tab", "revert" },
+  stashes = { "stash_pop", "stash_apply", "stash_drop", "open" },
+  files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open" },
+  graph = { "open", "revert", "reword" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
 
 -- Descriptions that read better than `M.descriptions` in a given box.
 M.context_descriptions = {
-  stashes = { open = "Show stash", open_tab = "Show in tab" },
+  stashes = { open = "Show stash" },
   files = { open = "Open file" },
-  graph = { open = "Toggle details (visual: combined)", open_tab = "Show in tab" },
+  graph = { open = "Toggle details (visual: combined)" },
   compose = { commit_submit = "Commit (or :w)" },
 }
 
@@ -575,12 +744,6 @@ function M.attach(view)
         M.open_items(view, target_items(view))
       end,
     },
-    open_tab = {
-      "n",
-      function()
-        M.open(view, "tabedit")
-      end,
-    },
     stash_pop = {
       "n",
       function()
@@ -609,6 +772,12 @@ function M.attach(view)
       "n",
       function()
         M.revert(view)
+      end,
+    },
+    reword = {
+      "n",
+      function()
+        M.reword(view)
       end,
     },
     close = {

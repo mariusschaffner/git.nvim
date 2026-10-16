@@ -9,6 +9,14 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("git.nvim")
 M.ns = ns
 
+---@class GitEditor
+---@field buf integer
+---@field win integer?
+---@field lines string[]? Last content, kept when the window is closed by the user
+---@field mode "commit"|"amend"|"reword"
+---@field hash string? The commit to reword
+---@field title string? Box title (default: the staged file count)
+
 ---@class GitView
 ---@field repo GitRepo
 ---@field kind GitWindowKind
@@ -20,7 +28,7 @@ M.ns = ns
 ---@field expanded table<string, string[]>
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
----@field editor { buf: integer, win: integer?, lines: string[]? }? Commit message editor, overlaid on the "compose" box
+---@field editor GitEditor? Commit message editor, overlaid on the "compose" box
 ---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
 ---@field augroup integer
@@ -227,6 +235,7 @@ function View:close()
   if self.closed then
     return
   end
+  self:_close_editor()
   if vim.api.nvim_win_is_valid(self.win) then
     local ok = pcall(vim.api.nvim_win_close, self.win, true)
     if not ok then
@@ -295,7 +304,7 @@ function View:redraw(opts)
     height = vim.api.nvim_win_get_height(self.win),
     expanded = self.expanded,
     commit = self.commit,
-    compose = self.editor ~= nil,
+    compose = self.editor and (self.editor.title or true),
     scroll = self.scroll,
     focus = key,
   })
@@ -380,6 +389,10 @@ function View:_close_editor()
   if not ed then
     return
   end
+  if vim.api.nvim_get_current_buf() == ed.buf then
+    -- Don't leave insert mode running in whatever window comes next.
+    vim.cmd("stopinsert")
+  end
   if ed.win and vim.api.nvim_win_is_valid(ed.win) then
     pcall(vim.api.nvim_win_close, ed.win, true)
   end
@@ -388,26 +401,32 @@ function View:_close_editor()
   end
 end
 
---- Turn the files box into a commit message editor. `:w` or commit_submit commits the staged changes.
-function View:start_commit()
+--- Turn the files box into a commit message editor. `:w` or commit_submit commits the staged changes, amends
+--- the last commit or rewords a commit, depending on `opts.mode`.
+---@param opts { mode: "commit"|"amend"|"reword"?, hash: string?, lines: string[]?, title: string? }?
+function View:start_commit(opts)
+  opts = opts or {}
+  local mode = opts.mode or "commit"
   if self.editor then
     if self.editor.win and vim.api.nvim_win_is_valid(self.editor.win) then
       vim.api.nvim_set_current_win(self.editor.win)
     end
     return
   end
-  if not self.state or #self.state.files.staged == 0 then
+  if mode == "commit" and (not self.state or #self.state.files.staged == 0) then
     util.notify("Nothing staged to commit")
     return
   end
+  -- Only a new commit's message is kept as a draft; amend and reword start from the existing message.
+  local initial = mode == "commit" and self.draft or opts.lines
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype = "acwrite"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
   pcall(vim.api.nvim_buf_set_name, buf, "gitcommit://" .. self.repo.root)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, self.draft or { "" })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, initial or { "" })
   vim.bo[buf].modified = false
-  self.editor = { buf = buf }
+  self.editor = { buf = buf, mode = mode, hash = opts.hash, title = opts.title }
   self.commit = nil
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
@@ -440,7 +459,7 @@ function View:start_commit()
   end
   vim.api.nvim_set_current_win(self.editor.win)
   vim.bo[buf].filetype = "gitcommit"
-  if not self.draft then
+  if not initial then
     vim.cmd("startinsert")
   end
 end
@@ -454,7 +473,8 @@ function View:stop_commit(discard)
   end
   if discard then
     self.draft = nil
-  else
+  elseif ed.mode == "commit" then
+    -- Keep a new commit's message; amend / reword start from the commit's message anyway.
     local lines = vim.api.nvim_buf_is_valid(ed.buf) and vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false) or ed.lines
     self.draft = lines and vim.trim(table.concat(lines, "\n")) ~= "" and lines or nil
   end
@@ -466,7 +486,7 @@ function View:stop_commit(discard)
   end
 end
 
---- Commit the staged changes with the editor's message.
+--- Commit the staged changes / amend / reword with the editor's message.
 ---@param cb fun(ok: boolean)?
 function View:submit_commit(cb)
   local ed = self.editor
@@ -483,25 +503,31 @@ function View:submit_commit(cb)
   end
   vim.bo[ed.buf].modified = false
   local runner = require("git.core.runner")
-  runner.mutate(
-    { "commit", "--quiet", "--cleanup=whitespace", "--file=-" },
-    { cwd = self.repo.root, stdin = msg .. "\n" },
-    function(res)
-      local ok = res.code == 0
-      if not ok then
-        util.notify(runner.error_message(res), vim.log.levels.ERROR)
-      elseif self.editor == ed then
-        self:stop_commit(true)
-      else
-        -- The editor was closed meanwhile (e.g. :wq); its message is committed, not a draft.
-        self.draft = nil
-      end
-      self:refresh()
-      if cb then
-        cb(ok)
-      end
+  local function done(res)
+    local ok = res.code == 0
+    if not ok then
+      util.notify(runner.error_message(res), vim.log.levels.ERROR)
+    elseif self.editor == ed then
+      self:stop_commit(ed.mode == "commit")
+    elseif ed.mode == "commit" then
+      -- The editor was closed meanwhile (e.g. :wq); its message is committed, not a draft.
+      self.draft = nil
     end
-  )
+    self:refresh()
+    if cb then
+      cb(ok)
+    end
+  end
+  msg = msg .. "\n"
+  if ed.mode == "reword" then
+    require("git.status.actions").set_message(self, ed.hash, msg, done)
+    return
+  end
+  local args = { "commit", "--quiet", "--cleanup=whitespace", "--file=-" }
+  if ed.mode == "amend" then
+    table.insert(args, 2, "--amend")
+  end
+  runner.mutate(args, { cwd = self.repo.root, stdin = msg }, done)
 end
 
 --- Show a commit's details in a box below the graph (in place of the files); again on the same commit hides it.

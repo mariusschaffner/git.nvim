@@ -12,6 +12,7 @@ local M = {}
 ---@field timeout integer?
 ---@field write boolean? Command may write to the repo (disables GIT_OPTIONAL_LOCKS=0)
 ---@field literal boolean? Treat pathspecs literally (no globbing / magic)
+---@field env table<string, string>? Extra environment variables
 
 --- Build the full argv for a git invocation.
 ---@param args string[]
@@ -37,7 +38,7 @@ local function env(opts)
     -- Read-only commands must not take index.lock, so they never fight with the user's own git commands.
     e.GIT_OPTIONAL_LOCKS = "0"
   end
-  return e
+  return vim.tbl_extend("force", e, opts.env or {})
 end
 
 --- Run git asynchronously. `cb` is always invoked on the main loop (safe to call API functions).

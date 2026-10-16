@@ -55,6 +55,24 @@ function M.commit_details(repo, hash, cb)
   end)
 end
 
+--- Full message of a commit, as lines.
+---@param repo GitRepo
+---@param hash string
+---@param cb fun(lines: string[]?, err: string?)
+function M.commit_message(repo, hash, cb)
+  runner.run({ "log", "-1", "--format=%B", hash, "--" }, { cwd = repo.root }, function(res)
+    if res.code ~= 0 then
+      cb(nil, runner.error_message(res))
+      return
+    end
+    local lines = output_lines(res.stdout)
+    while #lines > 1 and lines[#lines] == "" do
+      lines[#lines] = nil
+    end
+    cb(lines)
+  end)
+end
+
 --- Several commits shown as one: each commit's header and message, then the combined stat and patch
 --- from the oldest commit's parent (the empty tree for a root commit) to the newest commit.
 ---@param repo GitRepo

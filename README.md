@@ -87,10 +87,11 @@ require("git").setup({
 | `X` | discard unstaged changes / delete untracked files (asks first) |
 | `<Tab>` / `=` | toggle inline diff |
 | `<CR>` | open file (on a diff line: at that line) or stash; on a commit: toggle its details box (the cursor moves into it; `k` at its top goes to the top of the graph); on commits selected in Visual mode: their details combined |
-| `t` | open in a new tab (commits as `git show`) |
 | `P` / `A` / `D` | pop / apply / drop stash |
-| `c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft) |
+| `c c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft). `c` alone shows a popup with the choices |
+| `c a` | amend the last commit with the staged changes, editing its message |
 | `r` | on a commit in the graph: revert it (asks first) |
+| `R` | on an unpushed commit in the graph: change its message |
 | `q` / `<Esc>` | close the commit editor or details if open, else the view (`<Esc>` only for floats) |
 | `?` | help: the keymaps of the box under the cursor |
 

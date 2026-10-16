@@ -231,7 +231,7 @@ describe("ui", function()
     end)
     ok(lnum, "diff line rendered")
     vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
-    actions.open(view, "edit")
+    actions.open(view)
     eq(true, view.closed, "float closes when opening a file")
     local uv = vim.uv or vim.loop
     eq(uv.fs_realpath(dir .. "/tracked.txt"), uv.fs_realpath(vim.api.nvim_buf_get_name(0)))
@@ -426,7 +426,7 @@ describe("ui", function()
     H.write(dir, "tracked.txt", { "two" })
     H.git(dir, { "add", "tracked.txt" })
     local view = open(dir, "float")
-    vim.api.nvim_feedkeys("c", "x", false)
+    vim.api.nvim_feedkeys("cc", "x", false)
     vim.cmd("stopinsert")
     local ed = ok(view.editor, "editor open")
     eq(ed.win, vim.api.nvim_get_current_win())
@@ -446,7 +446,7 @@ describe("ui", function()
     eq(view.win, vim.api.nvim_get_current_win())
     ok(view.rendered.boxes.files, "files box back")
 
-    vim.api.nvim_feedkeys("c", "x", false)
+    vim.api.nvim_feedkeys("cc", "x", false)
     ed = ok(view.editor)
     eq({ "draft subject" }, vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false))
     vim.api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "Add two", "", "#body line kept" })
@@ -460,6 +460,11 @@ describe("ui", function()
   end)
 
   it("refuses to commit without staged changes or with an empty message", function()
+    local util = require("git.core.util")
+    local notify, messages = util.notify, {}
+    util.notify = function(msg)
+      messages[#messages + 1] = msg
+    end
     local view = open(dir, "float")
     view:start_commit()
     eq(nil, view.editor)
@@ -478,7 +483,9 @@ describe("ui", function()
     )
     ok(view.editor, "editor stays open")
     view:close()
+    util.notify = notify
     eq(nil, view.editor)
+    eq({ "Nothing staged to commit", "Empty commit message" }, messages)
   end)
 
   it("reverts the commit under the cursor after confirmation", function()
@@ -583,6 +590,97 @@ describe("ui", function()
     local text = table.concat(view.commit.lines, " ")
     matches("b/tracked%.txt", text)
     matches("b/a%.txt", text)
+  end)
+
+  it("amends the last commit with the staged changes via c a", function()
+    H.write(dir, "tracked.txt", { "two" })
+    H.git(dir, { "add", "tracked.txt" })
+    local view = open(dir, "float")
+    local before = H.git(dir, { "rev-list", "--count", "HEAD" })
+    vim.api.nvim_feedkeys("ca", "x", false)
+    local ed = ok(vim.wait(5000, function()
+      return view.editor ~= nil
+    end, 10) and view.editor, "amend editor open")
+    eq("amend", ed.mode)
+    eq({ "init" }, vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false))
+    matches("Amend .* %(%+1 staged file%)", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), " "))
+    vim.api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "init, amended" })
+    settle(view, function()
+      vim.cmd("write")
+    end)
+    eq(before, H.git(dir, { "rev-list", "--count", "HEAD" }))
+    eq("init, amended", vim.trim(H.git(dir, { "log", "-1", "--format=%s" })))
+    eq("two", vim.trim(H.git(dir, { "show", "HEAD:tracked.txt" })))
+    eq(nil, file_item(view, "staged", "tracked.txt"))
+  end)
+
+  it("rewords an unpushed commit with R, keeping later commits and staged changes", function()
+    H.write(dir, "a.txt", "a")
+    H.commit(dir, "add a")
+    H.write(dir, "b.txt", "b")
+    H.commit(dir, "add b")
+    H.write(dir, "tracked.txt", { "staged" })
+    H.git(dir, { "add", "tracked.txt" })
+    local view = open(dir, "float")
+    -- without an upstream or remote every commit counts as unpushed
+    local target
+    for _, c in ipairs(view.state.graph) do
+      if c.subject == "add a" then
+        target = c.hash
+      end
+    end
+    ok(view.state.unpushed[target], "commit is unpushed")
+    local lnum = find_line(view, function(it)
+      return it.kind == "commit" and it.hash == target and not it.refs
+    end)
+    vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
+    vim.api.nvim_feedkeys("R", "x", false)
+    local ed = ok(vim.wait(5000, function()
+      return view.editor ~= nil
+    end, 10) and view.editor, "reword editor open")
+    eq("reword", ed.mode)
+    eq({ "add a" }, vim.api.nvim_buf_get_lines(ed.buf, 0, -1, false))
+    vim.api.nvim_buf_set_lines(ed.buf, 0, -1, false, { "add a (reworded)" })
+    settle(view, function()
+      vim.cmd("write")
+    end)
+    eq(nil, view.editor)
+    eq({ "add b", "add a (reworded)", "init" }, vim.split(vim.trim(H.git(dir, { "log", "--format=%s" })), "\n"))
+    ok(file_item(view, "staged", "tracked.txt"), "staged changes kept")
+    eq("b", vim.trim(H.git(dir, { "show", "HEAD:b.txt" })))
+
+    -- the last commit is amended without taking the staged changes
+    vim.api.nvim_win_set_cursor(view.win, {
+      (find_line(view, function(it)
+        return it.kind == "commit" and it.hash == view.state.graph[1].hash and not it.refs
+      end)),
+      0,
+    })
+    vim.api.nvim_feedkeys("R", "x", false)
+    ok(vim.wait(5000, function()
+      return view.editor ~= nil
+    end, 10))
+    vim.api.nvim_buf_set_lines(view.editor.buf, 0, -1, false, { "add b (reworded)" })
+    settle(view, function()
+      vim.cmd("write")
+    end)
+    eq("add b (reworded)", vim.trim(H.git(dir, { "log", "-1", "--format=%s" })))
+    ok(file_item(view, "staged", "tracked.txt"), "still staged")
+  end)
+
+  it("refuses to reword pushed commits", function()
+    local remote = H.repo()
+    H.git(remote, { "config", "receive.denyCurrentBranch", "ignore" })
+    H.git(dir, { "remote", "add", "origin", remote })
+    H.git(dir, { "push", "--quiet", "-u", "origin", "main" })
+    local view = open(dir, "float")
+    local lnum = find_line(view, function(it)
+      return it.kind == "commit" and not it.refs
+    end)
+    vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
+    actions.reword(view)
+    eq(nil, view.editor)
+    H.rm(remote)
   end)
 end)
 
