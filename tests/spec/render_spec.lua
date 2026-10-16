@@ -318,4 +318,21 @@ describe("render", function()
     eq({ "branches", "files", "graph" }, names)
     eq(20, r.regions[3].last)
   end)
+
+  it("shows a zoomed box alone over the full height", function()
+    local s = state({
+      files = { unstaged = { { path = "x", code = "M", section = "unstaged" } } },
+      graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "", subject = "first" } },
+    })
+    local r = render.render(s, { width = 60, height = 20, zoom = "graph" })
+    eq(20, #r.lines)
+    eq({ "graph" }, vim.tbl_keys(r.boxes))
+    eq({ top = 2, rows = 18, offset = 0, total = 1 }, r.boxes.graph)
+    r = render.render(s, { width = 60, height = 20, zoom = "files" })
+    eq({ "files" }, vim.tbl_keys(r.boxes))
+    ok(not text(r):find("Branches"))
+    -- commit details win over the zoom
+    r = render.render(s, { width = 60, height = 20, zoom = "files", commit = { hash = "h1", lines = {} } })
+    ok(r.boxes.commit and r.boxes.graph)
+  end)
 end)

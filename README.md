@@ -42,7 +42,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │  ○ c682273 initial commit                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
-(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed and incoming commits are marked `!`, incoming ones also get an amber row background. Unpushed commits on top of the upstream are drawn on a side lane to the right that joins the upstream commit until they are pushed; incoming commits on top of HEAD stay on the left lane and your local history moves right (`╰─┤`) until you pull.)
+(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed and incoming commits are marked `!`, incoming ones also get an amber row background. Unpushed commits on top of the upstream, and incoming commits on top of HEAD, are drawn on a side lane to the right (`├─╯`) until they are pushed / pulled.)
 
 The view always fits its window: Files and Graph share the space below the other boxes and scroll on their own (`j`/`k` past a box edge, `<C-d>`/`<C-u>` & co., mouse wheel). While a diff is open only the Files box is shown; `<CR>` on a commit shows only the Graph (30%) and the commit's details (70%).
 
@@ -93,7 +93,8 @@ require("git").setup({
 | `r` | on a commit in the graph: revert it (asks first) |
 | `R` | on an unpushed commit in the graph: change its message |
 | `f` | fetch (a spinner shows in the Branches box meanwhile) |
-| `q` / `<Esc>` | close the commit editor or details if open, else the view (`<Esc>` only for floats) |
+| `z` | in the Files or Graph box: show only that box over the whole window; `z` or `q` to go back |
+| `q` / `<Esc>` | close the commit editor, details or zoom if open, else the view (`<Esc>` only for floats) |
 | `?` | help: the keymaps of the box under the cursor |
 
 All options, keymaps and highlight groups are documented in [`:help git.nvim`](doc/git.txt).

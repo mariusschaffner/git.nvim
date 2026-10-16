@@ -41,6 +41,8 @@ local M = {}
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
 ---@field commit GitCommitDetails? Commit details to show; replaces the files box
+---@field zoom ("files"|"graph")? Show only this box, over the full height (ignored while a commit or the
+--- commit message editor is shown)
 ---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
 ---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
 --- box; the UI overlays an editor
@@ -544,9 +546,10 @@ function M.render(state, opts)
   local b = Builder.new(opts.width)
   -- Commit details show only the graph and the commit; open diffs show only the files.
   -- Otherwise the fixed boxes come first and files and graph share the rest.
-  -- While composing a commit message, its box takes the place of the files box.
+  -- While composing a commit message, its box takes the place of the files box. A zoomed box is shown alone.
   local commit = not opts.compose and opts.commit or nil
-  local overview = not commit and not next(opts.expanded or {})
+  local zoom = not commit and not opts.compose and opts.zoom or nil
+  local overview = not commit and not zoom and not next(opts.expanded or {})
   local regions = {}
   --- b:box, recording the box's line range under `name`.
   local function box(name, ...)
@@ -572,6 +575,8 @@ function M.render(state, opts)
       { "graph", "Graph", commit_graph(state), g },
       { "commit", commit_title(commit), commit_details(commit), avail - g },
     }
+  elseif zoom == "graph" then
+    layout = { { "graph", "Graph", commit_graph(state), avail } }
   else
     local first = { "files", "Files", files(state, opts) }
     if opts.compose then

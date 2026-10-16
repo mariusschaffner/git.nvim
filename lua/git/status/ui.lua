@@ -28,6 +28,7 @@ M.ns = ns
 ---@field expanded table<string, string[]>
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
+---@field zoom ("files"|"graph")? Box shown alone over the full height
 ---@field editor GitEditor? Commit message editor, overlaid on the "compose" box
 ---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
@@ -309,6 +310,7 @@ function View:redraw(opts)
     commit = self.commit,
     compose = self.editor and (self.editor.title or true),
     fetching = self.fetch_frame and M.spinner()[self.fetch_frame],
+    zoom = self.zoom,
     scroll = self.scroll,
     focus = key,
   })

@@ -125,7 +125,7 @@ describe("graph.layout", function()
     eq(graph.MERGE, graph.layout(merge, { unpushed = { m = true, x = true } })[1].segments[1][1])
   end)
 
-  it("draws incoming commits at the tip on the left lane, the local history moved right", function()
+  it("draws incoming commits at the tip on a side lane joining HEAD, like unpushed ones", function()
     local commits = { c("i2", "i1"), c("i1", "h"), c("h", "p"), c("p") }
     local rows = graph.layout(commits, { incoming = { i1 = true, i2 = true } })
     local out = {}
@@ -135,11 +135,10 @@ describe("graph.layout", function()
       end, row.segments))
       out[i] = (s:gsub("%s+$", "")) .. (row.commit and (" " .. row.commit.hash) or "")
     end
-    eq({ "○ i2", "○ i1", "╰─┤", "  ○ h", "  ○ p" }, out)
-    eq("GitStatusGraphIncoming", rows[1].segments[1][2])
-    eq({ { " ", "GitStatusGraph" } }, graph.above(rows[1]))
+    eq({ "  ○ i2", "  ○ i1", "├─╯", "○ h", "○ p" }, out)
+    eq("GitStatusGraphIncoming", rows[1].segments[3][2])
     -- the junction leads into the local HEAD
-    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraph" } }, graph.above(rows[4]))
+    eq({ { "│", "GitStatusGraph" } }, graph.above(rows[4]))
     -- diverged (incoming does not sit on the next commit): normal layout
     local diverged = { c("i1", "b"), c("u1", "b"), c("b") }
     eq("○", graph.layout(diverged, { incoming = { i1 = true }, unpushed = { u1 = true } })[1].segments[1][1])

@@ -345,6 +345,22 @@ function M.commit(view)
   end
 end
 
+--- Show the Files or Graph box under the cursor alone over the full height; again (anywhere) to go back.
+---@param view GitView
+function M.zoom(view)
+  if view.zoom then
+    view.zoom = nil
+  else
+    local box = M.box_at(view, vim.api.nvim_win_get_cursor(view.win)[1])
+    if box ~= "files" and box ~= "graph" then
+      util.notify("Zoom works on the Files and Graph boxes")
+      return
+    end
+    view.zoom = box
+  end
+  view:redraw()
+end
+
 --- Commit the staged changes: the files box turns into a message editor.
 ---@param view GitView
 function M.create(view)
@@ -558,6 +574,7 @@ M.descriptions = {
   revert = "Revert commit",
   reword = "Reword unpushed commit",
   fetch = "Fetch",
+  zoom = "Zoom box",
   commit_submit = "Commit",
   commit_abort = "Cancel",
   close = "Close",
@@ -578,6 +595,7 @@ M.order = {
   "revert",
   "reword",
   "fetch",
+  "zoom",
   "commit_submit",
   "commit_abort",
   "help",
@@ -588,8 +606,8 @@ M.contexts = {
   branches = { "fetch" },
   tags = {},
   stashes = { "stash_pop", "stash_apply", "stash_drop", "open" },
-  files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open" },
-  graph = { "open", "revert", "reword" },
+  files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open", "zoom" },
+  graph = { "open", "revert", "reword", "zoom" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
@@ -788,6 +806,12 @@ function M.attach(view)
         view:fetch()
       end,
     },
+    zoom = {
+      "n",
+      function()
+        M.zoom(view)
+      end,
+    },
     close = {
       "n",
       function()
@@ -795,6 +819,8 @@ function M.attach(view)
           view:stop_commit()
         elseif view.commit then
           view:hide_commit()
+        elseif view.zoom then
+          M.zoom(view)
         else
           view:close()
         end

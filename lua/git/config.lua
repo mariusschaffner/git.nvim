@@ -63,6 +63,7 @@ M.defaults = {
       revert = "r",
       reword = "R", -- change the message of an unpushed commit
       fetch = "f",
+      zoom = "z", -- show the Files or Graph box alone (again: back)
       close = { "q", "<Esc>" },
       help = "?",
       -- In the commit message editor:

@@ -167,23 +167,26 @@ end
 ---@class GitGraphOpts
 ---@field unpushed table<string, true>? Unpushed commits: when they are the straight tip of the history, they
 --- are drawn on a side lane to the right that joins the pushed history at the upstream commit
----@field incoming table<string, true>? Incoming (not yet pulled) commits: the same, mirrored: they stay on the
---- left lane and join the local history, which moves one lane to the right
+---@field incoming table<string, true>? Incoming (not yet pulled) commits: drawn the same way, joining at HEAD
 
 ---@param commits GitCommit[] In topological order, newest first
 ---@param opts GitGraphOpts?
 ---@return GitGraphRow[]
 function M.layout(commits, opts)
   opts = opts or {}
+  local hl = "GitStatusGraphUnpushed"
   local n = tip_run(commits, opts.unpushed or {})
   if n == 0 then
-    local m = tip_run(commits, opts.incoming or {})
-    return m > 0 and M._incoming_layout(commits, m) or lanes_layout(commits)
+    hl = "GitStatusGraphIncoming"
+    n = tip_run(commits, opts.incoming or {})
+  end
+  if n == 0 then
+    return lanes_layout(commits)
   end
   local rows = {}
   for i = 1, n do
     rows[i] = {
-      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.COMMIT, "GitStatusGraphUnpushed" } },
+      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.COMMIT, hl } },
       commit = commits[i],
       fresh = i == 1,
     }
@@ -191,25 +194,6 @@ function M.layout(commits, opts)
   rows[#rows + 1] = { segments = { { "├", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "╯", "GitStatusGraph" } } }
   local rest = lanes_layout(vim.list_slice(commits, n + 1))
   rest[1].fresh = false -- the junction above leads into it
-  return vim.list_extend(rows, rest)
-end
-
---- `m` incoming commits at the tip on the left lane, joining (╰─┤) the local history one lane to the right.
----@param commits GitCommit[]
----@param m integer
----@return GitGraphRow[]
-function M._incoming_layout(commits, m)
-  local rows = {}
-  for i = 1, m do
-    rows[i] = { segments = { { M.COMMIT, "GitStatusGraphIncoming" } }, commit = commits[i], fresh = i == 1 }
-  end
-  rows[#rows + 1] = { segments = { { "╰", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "┤", "GitStatusGraph" } } }
-  local rest = lanes_layout(vim.list_slice(commits, m + 1))
-  rest[1].fresh = false -- the junction above leads into it
-  for _, row in ipairs(rest) do
-    table.insert(row.segments, 1, { " ", "GitStatusGraph" })
-    table.insert(row.segments, 1, { " ", "GitStatusGraph" })
-  end
   return vim.list_extend(rows, rest)
 end
 
