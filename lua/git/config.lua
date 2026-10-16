@@ -65,6 +65,10 @@ M.defaults = {
       reword = "R", -- change the message of an unpushed commit
       fetch = "f",
       zoom = "z", -- show the Files or Graph box alone (again: back)
+      -- In the zoomed graph (elsewhere these keys keep their normal meaning):
+      search = "/",
+      search_next = "n",
+      search_prev = "N",
       close = { "q", "<Esc>" },
       help = "?",
       -- In the commit message editor:

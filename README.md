@@ -94,6 +94,7 @@ require("git").setup({
 | `R` | on an unpushed commit in the graph: change its message |
 | `f` | fetch (a spinner shows in the Branches box meanwhile) |
 | `z` | in the Files or Graph box: show only that box over the whole window (a zoomed graph loads the full history as you scroll); `z` or `q` to go back |
+| `/` / `n` / `N` | in the zoomed graph: search hashes, ref names and subjects, next / previous match |
 | `q` / `<Esc>` | close the commit editor, details or zoom if open, else the view (`<Esc>` only for floats) |
 | `?` | help: the keymaps of the box under the cursor |
 

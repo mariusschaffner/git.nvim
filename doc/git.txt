@@ -121,8 +121,14 @@ Buffer-local mappings in the status view (press `?` for this list):
             window. `z` again (or `q`) shows all boxes again. A zoomed
             graph shows the whole history: it loads `graph.zoom_page`
             commits at a time, the next page when you scroll to its end.
-  q <Esc>   Close the commit message editor, the commit details or the
-            zoom if open, else the view. <Esc> only closes floating views.
+  / n N     In the zoomed graph: search the commits' hashes, ref names
+            and subjects (case-insensitive unless the text has capitals),
+            jump to the next / previous match. Matches are highlighted;
+            searching down past the loaded history loads older commits.
+            `q` clears the search. Elsewhere these are Neovim's own keys.
+  q <Esc>   Close the commit message editor, the commit details, the
+            search or the zoom if open, else the view. <Esc> only closes
+            floating views.
   ?         Show the keymaps of the box under the cursor (in the commit
             message editor: of the editor).
 
@@ -192,6 +198,9 @@ Defaults: >lua
         reword = "R",          -- change an unpushed commit's message
         fetch = "f",
         zoom = "z",
+        search = "/",          -- in the zoomed graph
+        search_next = "n",
+        search_prev = "N",
         close = { "q", "<Esc>" },
         help = "?",
         -- In the commit message editor:
@@ -247,6 +256,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ref names (line above) grey (#8a8a8a)
+  GitStatusSearch           graph search matches   copy of Search
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
 

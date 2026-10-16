@@ -41,6 +41,7 @@ local M = {}
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
 ---@field commit GitCommitDetails? Commit details to show; replaces the files box
+---@field search string? Text to highlight in the graph (smartcase: case-insensitive unless it has capitals)
 ---@field zoom ("files"|"graph")? Show only this box, over the full height (ignored while a commit or the
 --- commit message editor is shown)
 ---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
@@ -459,7 +460,48 @@ local function files(state, opts)
 end
 
 ---@param state GitState
-local function commit_graph(state)
+--- Whether `text` contains `needle`; case-insensitive unless `needle` has capitals (like 'smartcase').
+---@param text string
+---@param needle string
+---@return integer? start, integer? end
+function M.find(text, needle)
+  if needle:lower() == needle then
+    text = text:lower()
+  end
+  return text:find(needle, 1, true)
+end
+
+--- `text` as segments with `hl`, the occurrences of `needle` highlighted as search matches.
+---@param text string
+---@param hl string
+---@param needle string?
+---@return GitSeg[]
+local function with_matches(text, hl, needle)
+  if not needle or needle == "" then
+    return { { text, hl } }
+  end
+  local hay = needle:lower() == needle and text:lower() or text
+  local segs, pos = {}, 1
+  while true do
+    local s, e = hay:find(needle, pos, true)
+    if not s then
+      break
+    end
+    if s > pos then
+      segs[#segs + 1] = { text:sub(pos, s - 1), hl }
+    end
+    segs[#segs + 1] = { text:sub(s, e), "GitStatusSearch" }
+    pos = e + 1
+  end
+  if pos <= #text then
+    segs[#segs + 1] = { text:sub(pos), hl }
+  end
+  return segs
+end
+
+---@param state GitState
+---@param search string?
+local function commit_graph(state, search)
   local out = {}
   if #state.graph == 0 then
     if state.branch.unborn then
@@ -514,12 +556,15 @@ local function commit_graph(state)
       if c.deco ~= "" then
         -- Ref names on their own line above the commit, in the text column.
         local deco = prefix(graph.above(r))
-        add(deco, { " " .. c.deco, "GitStatusDeco" })
+        add(deco, { " " })
+        vim.list_extend(deco, with_matches(c.deco, "GitStatusDeco", search))
         out[#out + 1] = { segs = deco, item = vim.tbl_extend("force", item, { refs = true }), line_hl = line_hl }
       end
       local segs = prefix(r.segments, marker)
-      add(segs, { " " .. c.abbrev, hash_hl })
-      add(segs, { " " .. c.subject, "GitStatusSubject" })
+      add(segs, { " " })
+      vim.list_extend(segs, with_matches(c.abbrev, hash_hl, search))
+      add(segs, { " " })
+      vim.list_extend(segs, with_matches(c.subject, "GitStatusSubject", search))
       out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
     end
   end
@@ -603,11 +648,11 @@ function M.render(state, opts)
   if commit then
     local g = math.floor(avail * 0.3)
     layout = {
-      { "graph", "Graph", commit_graph(state), g },
+      { "graph", "Graph", commit_graph(state, opts.search), g },
       { "commit", commit_title(commit), commit_details(commit), avail - g },
     }
   elseif zoom == "graph" then
-    layout = { { "graph", "Graph", commit_graph(state), avail } }
+    layout = { { "graph", "Graph", commit_graph(state, opts.search), avail } }
   else
     local first = { "files", "Files", files(state, opts) }
     if opts.compose then
@@ -621,7 +666,7 @@ function M.render(state, opts)
       layout = { first }
     else
       first[4] = math.floor(avail / 2)
-      layout = { first, { "graph", "Graph", commit_graph(state), avail - first[4] } }
+      layout = { first, { "graph", "Graph", commit_graph(state, opts.search), avail - first[4] } }
     end
   end
 

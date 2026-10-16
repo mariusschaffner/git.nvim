@@ -31,6 +31,7 @@ M.ns = ns
 ---@field zoom ("files"|"graph")? Box shown alone over the full height
 ---@field graph_limit integer? Commits to load into the graph (set while it is zoomed; grows when scrolling down)
 ---@field loading_more boolean
+---@field search string? Text searched for in the zoomed graph
 ---@field editor GitEditor? Commit message editor, overlaid on the "compose" box
 ---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
@@ -340,6 +341,7 @@ function View:redraw(opts)
     compose = self.editor and (self.editor.title or true),
     fetching = self.fetch_frame and M.spinner()[self.fetch_frame],
     zoom = self.zoom,
+    search = self.zoom == "graph" and self.search or nil,
     scroll = self.scroll,
     focus = key,
   })
@@ -382,6 +384,7 @@ function View:set_zoom(box)
   end
   local had_more = self.graph_limit ~= nil
   self.zoom = box
+  self.search = nil
   self.graph_limit = box == "graph" and config.options.status.graph.zoom_page or nil
   self:redraw()
   if self.graph_limit or had_more then

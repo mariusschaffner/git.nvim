@@ -336,6 +336,99 @@ function M.zoom(view)
   view:set_zoom(box)
 end
 
+--- Run a key with its built-in meaning (for keys the view only takes over in some states).
+---@param key string
+local function builtin(key)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "n", false)
+end
+
+--- Whether a commit matches the search text: its hash, ref names or subject.
+---@param c GitCommit
+---@param needle string
+local function commit_matches(c, needle)
+  local find = require("git.status.render").find
+  return find(c.hash, needle) or find(c.deco, needle) or find(c.subject, needle)
+end
+
+--- Move to the next (`dir` 1) or previous (-1) commit matching the search in the zoomed graph, starting after
+--- the commit under the cursor. Going down past the loaded history loads older pages until a match turns up.
+---@param view GitView
+---@param dir 1|-1
+---@param cb fun(found: boolean)?
+function M.search_jump(view, dir, cb)
+  local needle = view.search
+  if not needle or not view.state then
+    return
+  end
+  local commits = view.state.graph
+  local item = view:item()
+  local start = dir > 0 and 0 or #commits + 1
+  for i, c in ipairs(commits) do
+    if item and item.kind == "commit" and c.hash == item.hash then
+      start = i
+      break
+    end
+  end
+  local i = start + dir
+  while commits[i] do
+    if commit_matches(commits[i], needle) then
+      view:redraw({ key = "commit:" .. commits[i].hash })
+      if cb then
+        cb(true)
+      end
+      return
+    end
+    i = i + dir
+  end
+  local more = dir > 0 and view.graph_limit and #commits >= view.graph_limit
+  if not more then
+    util.notify(("No %s match for %q"):format(dir > 0 and "further" or "earlier", needle))
+    if cb then
+      cb(false)
+    end
+    return
+  end
+  -- Not in the loaded history: load more (pages grow, so long histories take few rounds), then keep looking.
+  view.graph_limit = view.graph_limit * 2
+  view:refresh(function()
+    if view.search == needle then
+      M.search_jump(view, dir, cb)
+    end
+  end)
+end
+
+--- Search the zoomed graph (hash, ref names, subject). Elsewhere `/` is Neovim's own search.
+---@param view GitView
+---@param needle string? The text to search for (asks for it when nil)
+---@param cb fun(found: boolean)?
+function M.search(view, needle, cb)
+  if view.zoom ~= "graph" then
+    return builtin("/")
+  end
+  local function go(text)
+    if not text or text == "" then
+      return
+    end
+    view.search = text
+    view:redraw({ keep_row = true })
+    M.search_jump(view, 1, cb)
+  end
+  if needle then
+    return go(needle)
+  end
+  vim.ui.input({ prompt = "Search graph: ", default = view.search }, go)
+end
+
+--- Next / previous search match in the zoomed graph; elsewhere the built-in `n` / `N`.
+---@param view GitView
+---@param dir 1|-1
+function M.search_next(view, dir)
+  if view.zoom ~= "graph" or not view.search then
+    return builtin(dir > 0 and "n" or "N")
+  end
+  M.search_jump(view, dir)
+end
+
 --- Commit the staged changes: the files box turns into a message editor.
 ---@param view GitView
 function M.create(view)
@@ -550,6 +643,9 @@ M.descriptions = {
   reword = "Reword unpushed commit",
   fetch = "Fetch",
   zoom = "Zoom box",
+  search = "Search (zoomed)",
+  search_next = "Next match",
+  search_prev = "Previous match",
   commit_submit = "Commit",
   commit_abort = "Cancel",
   close = "Close",
@@ -571,6 +667,9 @@ M.order = {
   "reword",
   "fetch",
   "zoom",
+  "search",
+  "search_next",
+  "search_prev",
   "commit_submit",
   "commit_abort",
   "help",
@@ -582,7 +681,7 @@ M.contexts = {
   tags = {},
   stashes = { "stash_pop", "stash_apply", "stash_drop", "open" },
   files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open", "zoom" },
-  graph = { "open", "revert", "reword", "zoom" },
+  graph = { "open", "revert", "reword", "zoom", "search", "search_next", "search_prev" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
@@ -805,6 +904,24 @@ function M.attach(view)
         M.zoom(view)
       end,
     },
+    search = {
+      "n",
+      function()
+        M.search(view)
+      end,
+    },
+    search_next = {
+      "n",
+      function()
+        M.search_next(view, 1)
+      end,
+    },
+    search_prev = {
+      "n",
+      function()
+        M.search_next(view, -1)
+      end,
+    },
     close = {
       "n",
       function()
@@ -812,6 +929,9 @@ function M.attach(view)
           view:stop_commit()
         elseif view.commit then
           view:hide_commit()
+        elseif view.search then
+          view.search = nil
+          view:redraw({ keep_row = true })
         elseif view.zoom then
           M.zoom(view)
         else

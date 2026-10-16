@@ -825,4 +825,75 @@ describe("ui", function()
     matches("^ a  .*Amend last commit $", shown.lines[2])
     eq(nil, view.editor, "<Esc> picks nothing")
   end)
+
+  it("searches the zoomed graph with / n N, loading older history for matches", function()
+    require("git.config").setup({ status = { auto_refresh = false, graph = { max_commits = 5, zoom_page = 10 } } })
+    vim.o.lines = 24
+    for i = 1, 40 do
+      local subject = (i == 3 or i == 30) and ("needle " .. i) or ("c" .. i)
+      H.git(dir, { "commit", "--quiet", "--allow-empty", "-m", subject })
+    end
+    local view = open(dir, "float")
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "commit" and not it.refs
+    end)), 0 })
+    vim.api.nvim_feedkeys("z", "x", false)
+    ok(vim.wait(10000, function()
+      return #view.state.graph >= 10 and not view.loading_more
+    end, 10))
+    local function subject()
+      local it = view:item()
+      for _, c in ipairs(view.state.graph) do
+        if it and c.hash == it.hash then
+          return c.subject
+        end
+      end
+    end
+    -- newest first: "needle 30" is in the first pages, "needle 3" needs older history
+    local found = H.await(function(done)
+      actions.search(view, "needle", done)
+    end)
+    eq(true, found)
+    eq("needle 30", subject())
+    found = H.await(function(done)
+      actions.search_jump(view, 1, done)
+    end)
+    eq(true, found)
+    eq("needle 3", subject())
+    ok(#view.state.graph > 37, "older history loaded")
+    ok(#view.state.graph <= 41)
+    -- the match is visible and highlighted
+    local lnum = vim.api.nvim_win_get_cursor(view.win)[1]
+    local box = view.rendered.boxes.graph
+    ok(lnum >= box.top and lnum < box.top + box.rows)
+    local hl = false
+    for _, m in ipairs(view.rendered.marks) do
+      if m.row == lnum - 1 and m.hl == "GitStatusSearch" then
+        hl = true
+      end
+    end
+    ok(hl, "match highlighted")
+    vim.api.nvim_feedkeys("N", "x", false)
+    eq("needle 30", subject())
+    local util = require("git.core.util")
+    local notify, messages = util.notify, {}
+    util.notify = function(msg)
+      messages[#messages + 1] = msg
+    end
+    -- capitals make it case-sensitive: no match anywhere in the history
+    eq(
+      false,
+      H.await(function(done)
+        actions.search(view, "NEEDLE", done)
+      end)
+    )
+    util.notify = notify
+    eq({ 'No further match for "NEEDLE"' }, messages)
+    -- q clears the search first, then unzooms
+    vim.api.nvim_feedkeys("q", "x", false)
+    eq(nil, view.search)
+    eq("graph", view.zoom)
+    vim.api.nvim_feedkeys("q", "x", false)
+    eq(nil, view.zoom)
+  end)
 end)

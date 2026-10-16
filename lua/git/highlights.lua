@@ -52,6 +52,10 @@ M.colors = {
   GitStatusBorder = { fg = "#808080", ctermfg = 244 },
   GitStatusDeco = { fg = "#8a8a8a", ctermfg = 245 },
   -- Background of whole graph rows; background only, so the row keeps its text colors.
+  -- Search matches in the graph: a copy of Search, background included.
+  GitStatusSearch = function()
+    return vim.api.nvim_get_hl(0, { name = "Search", link = false })
+  end,
   GitStatusIncomingLine = function()
     return vim.o.background == "light" and { bg = "#f5dfa8", ctermbg = 223 } or { bg = "#5c4a1f", ctermbg = 58 }
   end,

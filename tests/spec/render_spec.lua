@@ -365,5 +365,26 @@ describe("render", function()
       eq(cols[1], c)
     end
   end)
-end)
 
+  it("highlights search matches in the graph, smartcase", function()
+    local s = state({
+      graph = { { hash = "abc123", abbrev = "abc123", parents = {}, deco = "tag: Fix-1", subject = "Fix the fix" } },
+    })
+    local function matched(search)
+      local r = render.render(s, { width = 80, search = search })
+      local out = {}
+      for _, m in ipairs(r.marks) do
+        if m.hl == "GitStatusSearch" then
+          out[#out + 1] = r.lines[m.row + 1]:sub(m.col + 1, m.end_col)
+        end
+      end
+      return out
+    end
+    eq({ "Fix", "Fix", "fix" }, matched("fix"))
+    eq({ "Fix", "Fix" }, matched("Fix"))
+    eq({ "abc" }, matched("abc"))
+    eq({}, matched(nil))
+    ok(render.find("Hello", "hello"))
+    eq(nil, render.find("hello", "Hello"))
+  end)
+end)
