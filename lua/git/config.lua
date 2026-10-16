@@ -52,8 +52,6 @@ M.defaults = {
       discard = "X",
       toggle_diff = { "<Tab>", "=" },
       open = "<CR>",
-      open_split = "o",
-      open_vsplit = "v",
       open_tab = "t",
       stash_pop = "P",
       stash_apply = "A",

@@ -101,7 +101,7 @@ Buffer-local mappings in the status view (press `?` for this list):
             the top of the graph, `q` back to the commit. On several commits
             selected in Visual mode: show them combined (each header, then
             one diff from the oldest one's parent to the newest).
-  o v t     Open in a split / vertical split / tab (commits as `git show`).
+  t         Open in a new tab (commits as `git show`).
   P A D     Pop / apply / drop the stash under the cursor (drop asks first).
   c         Commit the staged changes: the files box turns into an editable
             commit message box (filetype `gitcommit`).
@@ -161,8 +161,6 @@ Defaults: >lua
         discard = "X",
         toggle_diff = { "<Tab>", "=" },
         open = "<CR>",
-        open_split = "o",
-        open_vsplit = "v",
         open_tab = "t",
         stash_pop = "P",
         stash_apply = "A",

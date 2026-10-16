@@ -189,7 +189,7 @@ local function goto_target(view, cmd)
 end
 
 ---@param view GitView
----@param cmd "edit"|"split"|"vsplit"|"tabedit"
+---@param cmd "edit"|"tabedit"
 ---@param item GitItem?
 function M.open(view, cmd, item)
   item = item or view:item()
@@ -374,8 +374,6 @@ M.descriptions = {
   discard = "Discard",
   toggle_diff = "Toggle diff",
   open = "Open",
-  open_split = "Open in split",
-  open_vsplit = "Open in vsplit",
   open_tab = "Open in tab",
   stash_pop = "Pop stash",
   stash_apply = "Apply stash",
@@ -396,8 +394,6 @@ M.order = {
   "toggle_diff",
   "commit",
   "open",
-  "open_split",
-  "open_vsplit",
   "open_tab",
   "stash_pop",
   "stash_apply",
@@ -412,7 +408,7 @@ M.order = {
 M.contexts = {
   branches = {},
   tags = {},
-  stashes = { "stash_pop", "stash_apply", "stash_drop", "open", "open_split", "open_vsplit", "open_tab" },
+  stashes = { "stash_pop", "stash_apply", "stash_drop", "open", "open_tab" },
   files = {
     "stage",
     "unstage",
@@ -420,30 +416,18 @@ M.contexts = {
     "toggle_diff",
     "commit",
     "open",
-    "open_split",
-    "open_vsplit",
     "open_tab",
   },
-  graph = { "open", "open_split", "open_vsplit", "open_tab", "revert" },
+  graph = { "open", "open_tab", "revert" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
 
 -- Descriptions that read better than `M.descriptions` in a given box.
 M.context_descriptions = {
-  stashes = {
-    open = "Show stash",
-    open_split = "Show in split",
-    open_vsplit = "Show in vsplit",
-    open_tab = "Show in tab",
-  },
+  stashes = { open = "Show stash", open_tab = "Show in tab" },
   files = { open = "Open file" },
-  graph = {
-    open = "Toggle details (visual: combined)",
-    open_split = "Show in split",
-    open_vsplit = "Show in vsplit",
-    open_tab = "Show in tab",
-  },
+  graph = { open = "Toggle details (visual: combined)", open_tab = "Show in tab" },
   compose = { commit_submit = "Commit (or :w)" },
 }
 
@@ -589,18 +573,6 @@ function M.attach(view)
       { "n", "x" },
       function()
         M.open_items(view, target_items(view))
-      end,
-    },
-    open_split = {
-      "n",
-      function()
-        M.open(view, "split")
-      end,
-    },
-    open_vsplit = {
-      "n",
-      function()
-        M.open(view, "vsplit")
       end,
     },
     open_tab = {
