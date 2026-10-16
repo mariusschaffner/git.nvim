@@ -19,7 +19,7 @@ M.ns = ns
 ---@field rendered GitRendered?
 ---@field expanded table<string, string[]>
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
----@field commit { hash: string, lines: string[] }? Commit shown in the details box
+---@field commit GitCommitDetails? Commit(s) shown in the details box
 ---@field editor { buf: integer, win: integer?, lines: string[]? }? Commit message editor, overlaid on the "compose" box
 ---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
@@ -277,7 +277,8 @@ function View:items(l1, l2)
 end
 
 --- Re-render the current state into the buffer (no git calls).
----@param opts { keep_row: boolean? }? keep_row: leave the cursor on its screen row instead of following its entry
+---@param opts { keep_row: boolean?, key: string? }? keep_row: leave the cursor on its screen row instead of following
+--- its entry; key: item_key of the entry to put the cursor on instead
 function View:redraw(opts)
   if not self:valid() or not self.state then
     return
@@ -287,7 +288,7 @@ function View:redraw(opts)
   local old_items = self.rendered and self.rendered.items or {}
   local cursor = vim.api.nvim_win_get_cursor(self.win)
   local first_render = self.rendered == nil
-  local key = not opts.keep_row and render.item_key(old_items[cursor[1]]) or nil
+  local key = opts.key or (not opts.keep_row and render.item_key(old_items[cursor[1]]) or nil)
 
   local r = render.render(self.state, {
     width = width,
@@ -507,14 +508,22 @@ end
 ---@param hash string
 ---@param cb fun()?
 function View:toggle_commit(hash, cb)
-  if self.commit and self.commit.hash == hash then
+  self:toggle_commits({ hash }, cb)
+end
+
+--- Like toggle_commit, for several commits shown combined (headers, then one diff over all of them).
+---@param hashes string[] Newest first, as in the graph
+---@param cb fun()?
+function View:toggle_commits(hashes, cb)
+  local hash = hashes[1]
+  if self.commit and vim.deep_equal(self.commit.hashes, hashes) then
     self:hide_commit()
     if cb then
       cb()
     end
     return
   end
-  queries.commit_details(self.repo, hash, function(lines, err)
+  local function done(lines, err)
     if self.closed then
       return
     end
@@ -522,18 +531,30 @@ function View:toggle_commit(hash, cb)
       util.notify(err or "git show failed", vim.log.levels.ERROR)
       return
     end
-    self.commit = { hash = hash, lines = lines }
+    self.commit = { hash = hash, hashes = hashes, lines = lines }
     self.scroll.commit = 0
     self:redraw()
+    -- Start in the details, so scrolling moves through them right away.
+    local box = self.rendered and self.rendered.boxes.commit
+    if box and self:valid() then
+      vim.api.nvim_win_set_cursor(self.win, { box.top, 0 })
+    end
     if cb then
       cb()
     end
-  end)
+  end
+  if #hashes == 1 then
+    queries.commit_details(self.repo, hash, done)
+  else
+    queries.commits_details(self.repo, hashes, done)
+  end
 end
 
 function View:hide_commit()
+  local hash = self.commit and self.commit.hash
   self.commit = nil
-  self:redraw()
+  -- Back on the commit whose details were shown.
+  self:redraw({ key = hash and ("commit:" .. hash) })
 end
 
 --- Name and layout of the scrollable box showing line `lnum`.
@@ -583,7 +604,15 @@ function View:_motions()
         local name, b = self:box_at(lnum)
         local edge = b and lnum == (dir > 0 and b.top + b.rows - 1 or b.top)
         if not (edge and self:scroll_box(name, dir)) then
-          vim.cmd("normal! " .. key)
+          local graph = self.rendered.boxes.graph
+          if edge and dir < 0 and name == "commit" and graph then
+            -- Up out of the commit details: to the top of the graph, to move down through it from there.
+            self.scroll.graph = 0
+            self:redraw({ keep_row = true })
+            vim.api.nvim_win_set_cursor(self.win, { self.rendered.boxes.graph.top, 0 })
+          else
+            vim.cmd("normal! " .. key)
+          end
         end
       end
     end

@@ -272,21 +272,6 @@ describe("ui", function()
     eq({ "stashed 2" }, vim.fn.readfile(dir .. "/tracked.txt"))
   end)
 
-  it("jumps between sections", function()
-    H.write(dir, "tracked.txt", { "two" })
-    H.write(dir, "new.txt", "x")
-    local view = open(dir, "float")
-    vim.api.nvim_win_set_cursor(view.win, { 1, 0 })
-    local seen = {}
-    for _ = 1, #view.rendered.sections do
-      actions.jump_section(view, 1)
-      seen[#seen + 1] = vim.api.nvim_win_get_cursor(view.win)[1]
-    end
-    eq(vim.list_slice(view.rendered.sections, 2), vim.list_slice(seen, 1, #view.rendered.sections - 1))
-    actions.jump_section(view, -1)
-    ok(vim.api.nvim_win_get_cursor(view.win)[1] < seen[#seen])
-  end)
-
   it("redraws to the new width on resize", function()
     local view = open(dir, "split")
     vim.cmd("vsplit")
@@ -363,9 +348,11 @@ describe("ui", function()
   end)
 
   it("shows commit details in a box and closes them with q first", function()
+    H.commit(dir, "second")
     local view = open(dir, "float")
+    local init = view.state.graph[2].hash
     local lnum = find_line(view, function(it)
-      return it.kind == "commit"
+      return it.kind == "commit" and it.hash == init
     end)
     vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
@@ -375,9 +362,19 @@ describe("ui", function()
     eq(nil, view.rendered.boxes.files)
     eq(view.win, vim.api.nvim_get_current_win())
     matches("init", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+    -- the cursor starts in the details box
+    local box = view.rendered.boxes.commit
+    eq(box.top, vim.api.nvim_win_get_cursor(view.win)[1])
+    -- k on its first line goes to the first line of the graph
+    vim.api.nvim_feedkeys("k", "x", false)
+    eq(view.rendered.boxes.graph.top, vim.api.nvim_win_get_cursor(view.win)[1])
+    eq(view.state.graph[1].hash, view:item().hash)
+    vim.api.nvim_feedkeys("2j", "x", false)
+    eq(init, view:item().hash)
     vim.api.nvim_feedkeys("q", "x", false)
     eq(nil, view.rendered.boxes.commit)
     ok(view.rendered.boxes.files, "files box back")
+    eq(init, view:item().hash, "cursor back on the commit")
     ok(view:valid(), "view still open")
   end)
 
@@ -529,7 +526,8 @@ describe("ui", function()
     eq("╭", cfg.border[1])
     matches("Files keymaps", cfg.title[1][1])
     matches("Stage", text)
-    matches("Refresh", text)
+    matches("Help", text)
+    ok(not text:find("Close"), "close is not listed")
     ok(not text:find("Revert"), "no graph keys in files help")
     ok(not text:find("stash"), "no stash keys in files help")
 
@@ -537,7 +535,54 @@ describe("ui", function()
       return it.kind == "commit"
     end)
     matches("Revert", text)
-    matches("Toggle commit details", text)
+    matches("Toggle details", text)
     ok(not text:find("Stage"), "no file keys in graph help")
   end)
+
+  it("shows several commits selected in visual mode combined", function()
+    H.write(dir, "a.txt", "a")
+    H.commit(dir, "add a")
+    H.write(dir, "b.txt", "b")
+    H.commit(dir, "add b")
+    local view = open(dir, "float")
+    local function line_of(subject)
+      for _, c in ipairs(view.state.graph) do
+        if c.subject == subject then
+          return (find_line(view, function(it)
+            return it.kind == "commit" and it.hash == c.hash
+          end))
+        end
+      end
+    end
+    local top, bottom = line_of("add b"), line_of("add a")
+    vim.api.nvim_win_set_cursor(view.win, { top, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(("V%dG<CR>"):format(bottom), true, false, true), "x", false)
+    ok(vim.wait(5000, function()
+      return view.rendered.boxes.commit ~= nil
+    end, 10), "combined commit box shown")
+    eq("n", vim.api.nvim_get_mode().mode)
+    eq(2, #view.commit.hashes)
+    eq(view.state.graph[1].hash, view.commit.hash)
+    local text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), " ")
+    matches("2 commits", text)
+    matches("add a", text)
+    matches("add b", text)
+    matches("b/a%.txt", text)
+    matches("b/b%.txt", text)
+    ok(not text:find("b/tracked%.txt"), "only the selected commits' changes")
+  end)
+
+  it("combines commits down to the root commit", function()
+    H.write(dir, "a.txt", "a")
+    H.commit(dir, "add a")
+    local view = open(dir, "float")
+    local hashes = { view.state.graph[1].hash, view.state.graph[2].hash }
+    H.await(function(done)
+      view:toggle_commits(hashes, done)
+    end)
+    local text = table.concat(view.commit.lines, " ")
+    matches("b/tracked%.txt", text)
+    matches("b/a%.txt", text)
+  end)
 end)
+

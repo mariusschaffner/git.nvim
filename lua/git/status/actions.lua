@@ -226,6 +226,24 @@ function M.open(view, cmd, item)
   vim.cmd((lnum and (run .. " +" .. lnum .. " ") or (run .. " ")) .. vim.fn.fnameescape(path))
 end
 
+--- <CR> on the cursor item, or on a visual selection: several commits show their details combined,
+--- anything else opens the first selected item.
+---@param view GitView
+---@param items GitItem[]
+function M.open_items(view, items)
+  local hashes = {}
+  for _, it in ipairs(items) do
+    if it.kind == "commit" then
+      hashes[#hashes + 1] = it.hash
+    end
+  end
+  if #hashes > 1 then
+    view:toggle_commits(hashes)
+  elseif items[1] then
+    M.open(view, "edit", items[1])
+  end
+end
+
 --- Show git output in a read-only scratch buffer.
 ---@param view GitView
 ---@param args string[]
@@ -350,54 +368,33 @@ function M.toggle_diff(view, items)
   end
 end
 
----@param view GitView
----@param dir 1|-1
-function M.jump_section(view, dir)
-  if not view.rendered then
-    return
-  end
-  local cur = vim.api.nvim_win_get_cursor(view.win)[1]
-  local target
-  for _, lnum in ipairs(view.rendered.sections) do
-    if dir > 0 and lnum > cur and (not target or lnum < target) then
-      target = lnum
-    elseif dir < 0 and lnum < cur and (not target or lnum > target) then
-      target = lnum
-    end
-  end
-  if target then
-    vim.api.nvim_win_set_cursor(view.win, { target, 0 })
-  end
-end
-
 M.descriptions = {
-  stage = "Stage file / section / selection (marks conflicts resolved)",
-  unstage = "Unstage file / section / selection",
-  discard = "Discard unstaged changes / delete untracked files",
-  toggle_diff = "Toggle inline diff",
-  open = "Open file or stash / toggle commit details",
-  open_split = "Open in a horizontal split",
-  open_vsplit = "Open in a vertical split",
-  open_tab = "Open in a new tab",
-  stash_pop = "Pop stash under cursor",
-  stash_apply = "Apply stash under cursor",
-  stash_drop = "Drop stash under cursor",
-  commit = "Commit staged changes (edit the message in place)",
-  revert = "Revert commit under cursor (asks first)",
-  commit_submit = "Commit message editor: commit",
-  commit_abort = "Commit message editor: cancel (keeps the draft)",
-  next_section = "Next section",
-  prev_section = "Previous section",
-  refresh = "Refresh",
-  close = "Close (commit editor / details first)",
-  help = "Show this help",
+  stage = "Stage",
+  unstage = "Unstage",
+  discard = "Discard",
+  toggle_diff = "Toggle diff",
+  open = "Open",
+  open_split = "Open in split",
+  open_vsplit = "Open in vsplit",
+  open_tab = "Open in tab",
+  stash_pop = "Pop stash",
+  stash_apply = "Apply stash",
+  stash_drop = "Drop stash",
+  commit = "Commit staged",
+  revert = "Revert commit",
+  commit_submit = "Commit",
+  commit_abort = "Cancel, keep draft",
+  close = "Close",
+  help = "Help",
 }
 
+-- Actions listed in the help, in this order (`close` is left out: it is obvious).
 M.order = {
   "stage",
   "unstage",
   "discard",
   "toggle_diff",
+  "commit",
   "open",
   "open_split",
   "open_vsplit",
@@ -405,18 +402,13 @@ M.order = {
   "stash_pop",
   "stash_apply",
   "stash_drop",
-  "commit",
   "revert",
-  "next_section",
-  "prev_section",
-  "refresh",
-  "help",
-  "close",
   "commit_submit",
   "commit_abort",
+  "help",
 }
 
--- Actions listed in the help per box (see `GitRendered.regions`); `M.general` follows in every box.
+-- Actions listed in the help per box (see `GitRendered.regions`), followed by `help`.
 M.contexts = {
   branches = {},
   tags = {},
@@ -436,25 +428,23 @@ M.contexts = {
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
-M.general = { "next_section", "prev_section", "refresh", "help", "close" }
 
 -- Descriptions that read better than `M.descriptions` in a given box.
 M.context_descriptions = {
   stashes = {
-    open = "Show stash (git stash show -p)",
-    open_split = "Show stash in a horizontal split",
-    open_vsplit = "Show stash in a vertical split",
-    open_tab = "Show stash in a new tab",
+    open = "Show stash",
+    open_split = "Show in split",
+    open_vsplit = "Show in vsplit",
+    open_tab = "Show in tab",
   },
-  files = { open = "Open file (on a diff line: at that line)" },
+  files = { open = "Open file" },
   graph = {
-    open = "Toggle commit details",
-    open_split = "Show commit in a horizontal split",
-    open_vsplit = "Show commit in a vertical split",
-    open_tab = "Show commit in a new tab",
+    open = "Toggle details (visual: combined)",
+    open_split = "Show in split",
+    open_vsplit = "Show in vsplit",
+    open_tab = "Show in tab",
   },
-  commit = { close = "Close commit details" },
-  compose = { commit_submit = "Commit (also :w)", commit_abort = "Cancel (keeps the draft)" },
+  compose = { commit_submit = "Commit (or :w)" },
 }
 
 local BOX_TITLE = {
@@ -485,9 +475,7 @@ end
 function M.help_entries(box)
   local actions = M.order
   if box and M.contexts[box] then
-    -- The commit message editor is its own buffer: only its keys and help apply there.
-    local rest = box == "compose" and { "help" } or M.general
-    actions = vim.list_extend(vim.list_extend({}, M.contexts[box]), rest)
+    actions = vim.list_extend(vim.list_extend({}, M.contexts[box]), { "help" })
   end
   local overrides = box and M.context_descriptions[box] or {}
   local out = {}
@@ -598,9 +586,9 @@ function M.attach(view)
       end,
     },
     open = {
-      "n",
+      { "n", "x" },
       function()
-        M.open(view, "edit")
+        M.open_items(view, target_items(view))
       end,
     },
     open_split = {
@@ -649,24 +637,6 @@ function M.attach(view)
       "n",
       function()
         M.revert(view)
-      end,
-    },
-    next_section = {
-      { "n", "x" },
-      function()
-        M.jump_section(view, 1)
-      end,
-    },
-    prev_section = {
-      { "n", "x" },
-      function()
-        M.jump_section(view, -1)
-      end,
-    },
-    refresh = {
-      "n",
-      function()
-        view:refresh()
       end,
     },
     close = {

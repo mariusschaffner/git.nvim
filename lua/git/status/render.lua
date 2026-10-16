@@ -17,7 +17,6 @@ local M = {}
 ---@field lines string[]
 ---@field marks { row: integer, col: integer, end_col: integer, hl: string, priority: integer? }[] 0-based row, byte columns
 ---@field items table<integer, GitItem> 1-based line -> item
----@field sections integer[] 1-based lines of box titles and file section headers
 ---@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit"); only with a fixed height,
 --- except "compose", which is always present while composing
 ---@field scroll table<string, integer> Final scroll offsets of the scrollable boxes
@@ -29,13 +28,18 @@ local M = {}
 ---@field offset integer Content rows scrolled out above
 ---@field total integer Number of content rows
 
+---@class GitCommitDetails
+---@field hash string The (newest) commit
+---@field hashes string[]? All commits shown combined, newest first
+---@field lines string[]
+
 ---@class GitRenderOpts
 ---@field width integer
 ---@field expanded table<string, string[]>? diff key -> diff lines
 ---@field height integer? Fixed total height: the files and graph boxes split the space left by the others
 ---@field scroll table<string, integer>? Scroll offsets of the files/graph boxes (fixed height only)
 ---@field focus string? item_key to scroll into view (fixed height only)
----@field commit { hash: string, lines: string[] }? Commit details to show; replaces the files box
+---@field commit GitCommitDetails? Commit details to show; replaces the files box
 ---@field compose boolean? Show an empty "Commit message" box in place of the files box (the UI overlays an editor)
 
 local SECTION_LABEL = {
@@ -122,7 +126,7 @@ local Builder = {}
 Builder.__index = Builder
 
 function Builder.new(width)
-  return setmetatable({ width = math.max(width, 20), lines = {}, marks = {}, items = {}, sections = {} }, Builder)
+  return setmetatable({ width = math.max(width, 20), lines = {}, marks = {}, items = {} }, Builder)
 end
 
 function Builder:_push(text, marks, item)
@@ -139,26 +143,25 @@ end
 
 function Builder:top(title)
   local w = self.width
-  local prefix = "┌── "
+  local prefix = "╭── "
   local t = util.truncate(title, math.max(w - 7, 1))
   local used = util.width(prefix) + util.width(t) + 1
   local fill = math.max(w - used - 1, 0)
-  local text = prefix .. t .. " " .. string.rep("─", fill) .. "┐"
+  local text = prefix .. t .. " " .. string.rep("─", fill) .. "╮"
   local p, tl = #prefix, #t
-  local lnum = self:_push(text, {
+  self:_push(text, {
     { 0, p, "GitStatusBorder" },
     { p, p + tl, "GitStatusBoxTitle" },
     { p + tl, #text, "GitStatusBorder" },
   })
-  self.sections[#self.sections + 1] = lnum
 end
 
 ---@param label string? Shown at the right end of the border (e.g. a scroll position)
 function Builder:bottom(label)
   label = label and util.truncate(label, math.max(self.width - 4, 0)) or ""
   local fill = string.rep("─", math.max(self.width - 3 - util.width(label), 0))
-  local text = "└" .. fill .. label .. "─┘"
-  local a, b = #"└" + #fill, #"└" + #fill + #label
+  local text = "╰" .. fill .. label .. "─╯"
+  local a, b = #"╰" + #fill, #"╰" + #fill + #label
   self:_push(text, { { 0, a, "GitStatusBorder" }, { a, b, DIM }, { b, #text, "GitStatusBorder" } })
 end
 
@@ -200,7 +203,7 @@ function Builder:line(segs, item, line_hl)
 end
 
 ---@param title string
----@param content { segs: GitSeg[], item: GitItem?, section: boolean?, line_hl: string? }[]
+---@param content { segs: GitSeg[], item: GitItem?, line_hl: string? }[]
 ---@param rows integer? Fixed number of content rows; content is windowed by `offset` and padded
 ---@param offset integer?
 ---@param label string? Bottom border label when the content is not scrolled
@@ -215,10 +218,7 @@ function Builder:box(title, content, rows, offset, label)
   offset = offset or 0
   for i = offset + 1, offset + rows do
     local c = content[i] or { segs = {} }
-    local lnum = self:line(c.segs, c.item, c.line_hl)
-    if c.section then
-      self.sections[#self.sections + 1] = lnum
-    end
+    self:line(c.segs, c.item, c.line_hl)
   end
   if #content > rows then
     label = (" %d-%d/%d "):format(offset + 1, math.min(offset + rows, #content), #content)
@@ -417,7 +417,6 @@ local function files(state, opts)
           section_hints[section]
         ),
         item = { kind = "section", section = section },
-        section = true,
       }
       local hl = item_hl[section]
       for _, f in ipairs(list) do
@@ -472,7 +471,7 @@ local function commit_graph(state)
     end
     return out
   end
-  for _, r in ipairs(graph.layout(state.graph)) do
+  for _, r in ipairs(graph.layout(state.graph, { unpushed = state.unpushed })) do
     local segs = vim.list_extend({ { " " } }, r.segments)
     local item, line_hl
     local c = r.commit
@@ -484,13 +483,16 @@ local function commit_graph(state)
         hash_hl, line_hl = "GitStatusHashIncoming", "GitStatusIncomingLine"
       end
       add(segs, { " " .. c.abbrev, hash_hl })
-      if c.deco ~= "" then
-        add(segs, { " (" .. c.deco .. ")", "GitStatusDeco" })
-      end
       add(segs, { " " .. c.subject, "GitStatusSubject" })
       item = { kind = "commit", hash = c.hash }
     end
     out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
+    if c and c.deco ~= "" then
+      -- Ref names on their own line below the commit, aligned with the hash.
+      local deco = vim.list_extend({ { " " } }, graph.continuation(r))
+      add(deco, { " " .. c.deco, "GitStatusDeco" })
+      out[#out + 1] = { segs = deco, item = item, line_hl = line_hl }
+    end
   end
   return out
 end
@@ -529,6 +531,15 @@ local function compose_label()
   return #parts > 0 and (" " .. table.concat(parts, " · ") .. " ") or nil
 end
 
+---@param commit GitCommitDetails
+local function commit_title(commit)
+  local hashes = commit.hashes or { commit.hash }
+  if #hashes == 1 then
+    return "Commit " .. commit.hash:sub(1, 8)
+  end
+  return ("%d commits %s..%s"):format(#hashes, hashes[#hashes]:sub(1, 8), hashes[1]:sub(1, 8))
+end
+
 --- Render the full status view.
 ---@param state GitState
 ---@param opts GitRenderOpts
@@ -563,7 +574,7 @@ function M.render(state, opts)
     local g = math.floor(avail * 0.3)
     layout = {
       { "graph", "Graph", commit_graph(state), g },
-      { "commit", "Commit " .. commit.hash:sub(1, 8), commit_details(commit), avail - g },
+      { "commit", commit_title(commit), commit_details(commit), avail - g },
     }
   else
     local first = { "files", "Files", files(state, opts) }
@@ -594,7 +605,6 @@ function M.render(state, opts)
       lines = b.lines,
       marks = b.marks,
       items = b.items,
-      sections = b.sections,
       boxes = boxes,
       scroll = scroll,
       regions = regions,
@@ -622,7 +632,6 @@ function M.render(state, opts)
     lines = b.lines,
     marks = b.marks,
     items = b.items,
-    sections = b.sections,
     boxes = boxes,
     scroll = scroll,
     regions = regions,

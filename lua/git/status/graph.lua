@@ -23,6 +23,7 @@ local GLYPH = {
 
 M.COMMIT = "○"
 M.MERGE = "●"
+M.UNPUSHED = "!"
 
 ---@class GitGraphRow
 ---@field segments { [1]: string, [2]: string }[] Lane glyphs as {text, highlight group}
@@ -36,7 +37,7 @@ end
 
 ---@param commits GitCommit[] In topological order, newest first
 ---@return GitGraphRow[]
-function M.layout(commits)
+local function lanes_layout(commits)
   local rows = {}
   ---@type (string|false)[]
   local lanes = {}
@@ -139,6 +140,66 @@ function M.layout(commits)
   end
 
   return rows
+end
+
+--- Number of leading commits that are unpushed and form a straight line onto the next (pushed) commit.
+---@param commits GitCommit[]
+---@param unpushed table<string, true>
+---@return integer
+local function unpushed_run(commits, unpushed)
+  local n = 0
+  while commits[n + 1] and unpushed[commits[n + 1].hash] do
+    n = n + 1
+  end
+  if n == 0 or n == #commits then
+    return 0
+  end
+  for i = 1, n do
+    local parents = commits[i].parents
+    if #parents ~= 1 or parents[1] ~= commits[i + 1].hash then
+      return 0
+    end
+  end
+  return n
+end
+
+---@class GitGraphOpts
+---@field unpushed table<string, true>? Unpushed commits: when they are the straight tip of the history, they
+--- are drawn on a side lane that joins the pushed history at the upstream commit
+
+---@param commits GitCommit[] In topological order, newest first
+---@param opts GitGraphOpts?
+---@return GitGraphRow[]
+function M.layout(commits, opts)
+  local n = unpushed_run(commits, opts and opts.unpushed or {})
+  if n == 0 then
+    return lanes_layout(commits)
+  end
+  local rows = {}
+  for i = 1, n do
+    rows[i] = {
+      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.UNPUSHED, "GitStatusGraphUnpushed" } },
+      commit = commits[i],
+    }
+  end
+  rows[#rows + 1] = { segments = { { "├", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "╯", "GitStatusGraph" } } }
+  return vim.list_extend(rows, lanes_layout(vim.list_slice(commits, n + 1)))
+end
+
+--- Lane glyphs for an extra line below a commit row (e.g. for its ref names): the other lanes pass
+--- straight through, the commit's own lane continues down unless it is a root commit.
+---@param row GitGraphRow A commit row
+---@return { [1]: string, [2]: string }[]
+function M.continuation(row)
+  local out = {}
+  for i, seg in ipairs(row.segments) do
+    local t = seg[1]
+    if t == M.COMMIT or t == M.MERGE or t == M.UNPUSHED then
+      t = #row.commit.parents > 0 and "│" or " "
+    end
+    out[i] = { t, "GitStatusGraph" }
+  end
+  return out
 end
 
 return M

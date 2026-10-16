@@ -55,4 +55,45 @@ function M.commit_details(repo, hash, cb)
   end)
 end
 
+--- Several commits shown as one: each commit's header and message, then the combined stat and patch
+--- from the oldest commit's parent (the empty tree for a root commit) to the newest commit.
+---@param repo GitRepo
+---@param hashes string[] Newest first, as in the graph
+---@param cb fun(lines: string[]?, err: string?)
+function M.commits_details(repo, hashes, cb)
+  local newest, oldest = hashes[1], hashes[#hashes]
+  local function fail(res)
+    cb(nil, runner.error_message(res))
+  end
+  local function diff(base)
+    local header = vim.list_extend({ "show", "--no-patch", "--format=fuller" }, hashes)
+    runner.run(header, { cwd = repo.root }, function(hres)
+      if hres.code ~= 0 then
+        return fail(hres)
+      end
+      local args = { "diff", "--stat", "--patch", "--no-ext-diff", base, newest, "--" }
+      runner.run(args, { cwd = repo.root }, function(dres)
+        if dres.code ~= 0 then
+          return fail(dres)
+        end
+        local lines = output_lines(hres.stdout)
+        lines[#lines + 1] = ""
+        cb(vim.list_extend(lines, output_lines(dres.stdout)))
+      end)
+    end)
+  end
+  runner.run({ "rev-parse", "--verify", "--quiet", oldest .. "^" }, { cwd = repo.root }, function(res)
+    if res.code == 0 then
+      return diff(vim.trim(res.stdout))
+    end
+    -- Root commit: diff against the empty tree (its id depends on the repo's hash algorithm).
+    runner.run({ "hash-object", "-t", "tree", "--stdin" }, { cwd = repo.root, stdin = "" }, function(tres)
+      if tres.code ~= 0 then
+        return fail(tres)
+      end
+      diff(vim.trim(tres.stdout))
+    end)
+  end)
+end
+
 return M

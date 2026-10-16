@@ -98,7 +98,7 @@ describe("render", function()
     matches("x%.lua %(%+4 | %-2%)", text(r))
   end)
 
-  it("maps lines to items and records sections", function()
+  it("maps lines to items", function()
     local f = { path = "x.lua", code = "M", section = "unstaged" }
     local r = render.render(state({ files = { unstaged = { f } } }), { width = 80 })
     local kinds = {}
@@ -107,8 +107,6 @@ describe("render", function()
     end
     eq(1, kinds.file)
     eq(1, kinds.section)
-    -- 3 box titles (Branches, Files, Graph is empty -> omitted) + 1 file section header
-    eq(3, #r.sections)
   end)
 
   it("renders expanded diffs below the file with per-line items", function()
@@ -143,7 +141,23 @@ describe("render", function()
       unpushed = { h1 = true },
     })
     local r = render.render(s, { width = 80 })
-    matches("○ h1 %(HEAD %-> main%) first", text(r))
+    -- ref names go on their own line below the commit, aligned with the hash
+    local lnum
+    for l, it in pairs(r.items) do
+      if it.kind == "commit" and (not lnum or l < lnum) then
+        lnum = l
+      end
+    end
+    matches("│  ○ h1 first ", r.lines[lnum])
+    matches("│    HEAD %-> main ", r.lines[lnum + 1])
+    eq("h1", r.items[lnum + 1].hash)
+    local deco_hl
+    for _, m in ipairs(r.marks) do
+      if m.row == lnum and m.hl == "GitStatusDeco" then
+        deco_hl = m
+      end
+    end
+    ok(deco_hl, "ref names highlighted")
     local hl
     for _, m in ipairs(r.marks) do
       if m.hl == "GitStatusHashUnpushed" then
@@ -214,6 +228,12 @@ describe("render", function()
     eq({ top = 11, rows = 19, offset = 0, total = 5 }, r.boxes.commit)
     matches("Commit h1234567", r.lines[10])
     matches("Author: me", r.lines[12])
+    r = render.render(s, {
+      width = 60,
+      height = 30,
+      commit = { hash = "h1234567890", hashes = { "h1234567890", "a0987654321" }, lines = {} },
+    })
+    matches("2 commits a0987654%.%.h1234567", r.lines[10])
   end)
 
   it("splits a fixed height evenly between files and graph and scrolls them", function()
@@ -286,8 +306,8 @@ describe("render", function()
     local names = {}
     for i, reg in ipairs(r.regions) do
       names[i] = reg.name
-      matches("^┌", r.lines[reg.first])
-      matches("^└", r.lines[reg.last])
+      matches("^╭", r.lines[reg.first])
+      matches("^╰", r.lines[reg.last])
     end
     eq({ "branches", "files", "graph" }, names)
     eq(20, r.regions[3].last)

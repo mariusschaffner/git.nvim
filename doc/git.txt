@@ -32,6 +32,9 @@ current directory) in up to five panels:
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
+Unpushed commits on top of the upstream branch are drawn as `!` on a side
+lane that joins the upstream commit (`├─╯`); once pushed, the graph is a
+straight line again.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
 split the height left after Branches, Tags and Stashes evenly and scroll on their
@@ -93,15 +96,17 @@ Buffer-local mappings in the status view (press `?` for this list):
             Staged changes must be unstaged before they can be discarded.
   <Tab> =   Toggle the inline diff of a file (on a header: of all files).
   <CR>      Open the file (on a diff line: at that line) or the stash
-            (`git stash show -p`). On a commit: toggle its details box.
+            (`git stash show -p`). On a commit: toggle its details box. The
+            cursor moves into the details; `k` on their first line goes to
+            the top of the graph, `q` back to the commit. On several commits
+            selected in Visual mode: show them combined (each header, then
+            one diff from the oldest one's parent to the newest).
   o v t     Open in a split / vertical split / tab (commits as `git show`).
   P A D     Pop / apply / drop the stash under the cursor (drop asks first).
   c         Commit the staged changes: the files box turns into an editable
             commit message box (filetype `gitcommit`).
   r         On a commit in the graph: revert it (`git revert`, asks first;
             merge commits are reverted against their first parent).
-  ]] [[     Next / previous section.
-  R         Refresh.
   q <Esc>   Close the commit message editor or the commit details if open,
             else the view. <Esc> only closes floating views.
   ?         Show the keymaps of the box under the cursor (in the commit
@@ -164,9 +169,6 @@ Defaults: >lua
         stash_drop = "D",
         commit = "c",
         revert = "r",
-        next_section = "]]",
-        prev_section = "[[",
-        refresh = "R",
         close = { "q", "<Esc>" },
         help = "?",
         -- In the commit message editor:
@@ -215,13 +217,14 @@ with |nvim_set_hl()| are left alone.
   GitStatusGraph            graph lines            -> Comment
   GitStatusGraphCommit      commit node            -> Function
   GitStatusGraphMerge       merge node             -> Statement
+  GitStatusGraphUnpushed    unpushed node (!)      -> Added
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   -> Added
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusUnpushedLine     unpushed commit row    translucent green background
                                                    (blended over the window's)
   GitStatusIncomingLine     incoming commit row    amber background
-  GitStatusDeco             ref names              -> String
+  GitStatusDeco             ref names (own line)   grey (#8a8a8a)
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
 

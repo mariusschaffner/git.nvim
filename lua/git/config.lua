@@ -60,9 +60,6 @@ M.defaults = {
       stash_drop = "D",
       commit = "c",
       revert = "r",
-      next_section = "]]",
-      prev_section = "[[",
-      refresh = "R",
       close = { "q", "<Esc>" },
       help = "?",
       -- In the commit message editor:

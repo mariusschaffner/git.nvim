@@ -87,4 +87,39 @@ describe("graph.layout", function()
   it("handles an empty list", function()
     eq({}, graph.layout({}))
   end)
+
+  it("continues the lanes below a commit row", function()
+    local rows = graph.layout({ c("m", "a", "b"), c("b", "a"), c("a") })
+    local function cont(row)
+      return table.concat(vim.tbl_map(function(seg)
+        return seg[1]
+      end, graph.continuation(row)))
+    end
+    eq("│", cont(rows[1])) -- merge continues down
+    local root = rows[#rows]
+    eq("a", root.commit.hash)
+    eq(" ", cont(root)) -- root commit ends
+  end)
+
+  it("draws unpushed commits at the tip on a side lane joining the upstream commit", function()
+    local commits = { c("u2", "u1"), c("u1", "p2"), c("p2", "p1"), c("p1") }
+    local rows = graph.layout(commits, { unpushed = { u1 = true, u2 = true } })
+    local out = {}
+    for i, row in ipairs(rows) do
+      local s = table.concat(vim.tbl_map(function(seg)
+        return seg[1]
+      end, row.segments))
+      out[i] = (s:gsub("%s+$", "")) .. (row.commit and (" " .. row.commit.hash) or "")
+    end
+    eq({ "  ! u2", "  ! u1", "├─╯", "○ p2", "○ p1" }, out)
+    eq("GitStatusGraphUnpushed", rows[1].segments[3][2])
+    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraph" } }, graph.continuation(rows[1]))
+    -- once pushed (or when nothing is pushed yet) the graph is straight again
+    eq({ "○ u2", "○ u1", "○ p2", "○ p1" }, draw(commits))
+    eq(4, #graph.layout(commits, { unpushed = { u2 = true, u1 = true, p2 = true, p1 = true } }))
+    -- not a straight line onto the upstream commit: no side lane
+    local merge = { c("m", "p2", "x"), c("x", "p2"), c("p2", "p1"), c("p1") }
+    eq(graph.MERGE, graph.layout(merge, { unpushed = { m = true, x = true } })[1].segments[1][1])
+  end)
 end)
+

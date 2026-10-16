@@ -34,10 +34,10 @@ M.links = {
   GitStatusGraph = "Comment",
   GitStatusGraphCommit = "Function",
   GitStatusGraphMerge = "Statement",
+  GitStatusGraphUnpushed = "Added",
   GitStatusHash = "Identifier",
   GitStatusHashUnpushed = "Added",
   GitStatusHashIncoming = "DiagnosticWarn",
-  GitStatusDeco = "String",
   GitStatusSubject = "Normal",
   GitStatusDiffAdd = "Added",
   GitStatusDiffDelete = "Removed",
@@ -66,6 +66,7 @@ end
 -- Groups with fixed colors instead of a colorscheme source.
 M.colors = {
   GitStatusBorder = { fg = "#808080", ctermfg = 244 },
+  GitStatusDeco = { fg = "#8a8a8a", ctermfg = 245 },
   -- Background of whole graph rows; background only, so the row keeps its text colors.
   -- Unpushed rows get a translucent green, blended over the window background.
   GitStatusUnpushedLine = function()
