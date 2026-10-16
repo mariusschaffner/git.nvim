@@ -96,22 +96,11 @@ Buffer-local mappings in the status view (press `?` for this list):
             (`git stash show -p`). On a commit: toggle its details box.
   o v t     Open in a split / vertical split / tab (commits as `git show`).
   P A D     Pop / apply / drop the stash under the cursor (drop asks first).
-  c         Commit the staged changes: the files box turns into an editable
-            commit message box (filetype `gitcommit`).
-  r         On a commit in the graph: revert it (`git revert`, asks first;
-            merge commits are reverted against their first parent).
   ]] [[     Next / previous section.
-  R         Refresh.
-  q <Esc>   Close the commit message editor or the commit details if open,
-            else the view. <Esc> only closes floating views.
+  r         Refresh.
+  q <Esc>   Close the commit details if open, else the view. <Esc> only
+            closes floating views.
   ?         Show the keymaps.
-
-In the commit message editor:
-
-  <C-s> :w  Commit (normal and insert mode). The message is used as typed,
-            `#` lines included; only surrounding blank lines are dropped.
-  q <Esc>   Cancel (normal mode). The message is kept as a draft and comes
-            back on the next `c`.
 
 The view's buffer has 'filetype' `gitstatus`, so a |FileType| autocommand
 can add further mappings.
@@ -161,16 +150,11 @@ Defaults: >lua
         stash_pop = "P",
         stash_apply = "A",
         stash_drop = "D",
-        commit = "c",
-        revert = "r",
         next_section = "]]",
         prev_section = "[[",
-        refresh = "R",
+        refresh = "r",
         close = { "q", "<Esc>" },
         help = "?",
-        -- In the commit message editor:
-        commit_submit = "<C-s>",         -- normal and insert mode
-        commit_abort = { "q", "<Esc>" }, -- normal mode; keeps the draft
       },
     },
   })
@@ -186,8 +170,7 @@ introduced) still work: they are moved into `status` with a warning.
 7. HIGHLIGHTS                                              *git-highlights*
 
 All groups copy a standard group, so they follow the colorscheme, but with
-italic and background removed: the plugin shows no italic text, and text
-never hides the row backgrounds below it. Groups you define yourself
+italic removed: the plugin shows no italic text. Groups you define yourself
 with |nvim_set_hl()| are left alone.
 
   GitStatusBorder           box borders            grey (#808080)
@@ -217,8 +200,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   -> Added
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
-  GitStatusUnpushedLine     unpushed commit row    translucent green background
-                                                   (blended over the window's)
+  GitStatusUnpushedLine     unpushed commit row    green background
   GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ref names              -> String
   GitStatusSubject          commit subject         -> Normal

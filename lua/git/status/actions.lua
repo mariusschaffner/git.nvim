@@ -283,49 +283,6 @@ function M.stash(view, op)
 end
 
 ---@param view GitView
-function M.commit(view)
-  view:start_commit()
-end
-
---- Revert the commit under the cursor (`git revert`), after confirmation. Merges are reverted against
---- their first parent.
----@param view GitView
-function M.revert(view)
-  local item = view:item()
-  if not item or item.kind ~= "commit" then
-    util.notify("Move the cursor to a commit in the graph first")
-    return
-  end
-  local commit
-  for _, c in ipairs(view.state and view.state.graph or {}) do
-    if c.hash == item.hash then
-      commit = c
-      break
-    end
-  end
-  local merge = commit and #commit.parents > 1
-  local name = commit and commit.abbrev or item.hash:sub(1, 8)
-  local msg = ("Revert %s?\n  %s"):format(name, commit and commit.subject or "")
-  if merge then
-    msg = msg .. "\nThis is a merge commit: it is reverted against its first parent."
-  end
-  if vim.fn.confirm(msg, "&Revert\n&Cancel", 2, "Question") ~= 1 then
-    return
-  end
-  local args = { "revert", "--no-edit" }
-  if merge then
-    vim.list_extend(args, { "-m", "1" })
-  end
-  args[#args + 1] = item.hash
-  runner.mutate(args, { cwd = view.repo.root }, function(res)
-    if res.code ~= 0 then
-      util.notify(runner.error_message(res), vim.log.levels.ERROR)
-    end
-    view:refresh()
-  end)
-end
-
----@param view GitView
 ---@param items GitItem[]
 function M.toggle_diff(view, items)
   local fs = files_of(view, items)
@@ -382,14 +339,10 @@ M.descriptions = {
   stash_pop = "Pop stash under cursor",
   stash_apply = "Apply stash under cursor",
   stash_drop = "Drop stash under cursor",
-  commit = "Commit staged changes (edit the message in place)",
-  revert = "Revert commit under cursor (asks first)",
-  commit_submit = "Commit message editor: commit",
-  commit_abort = "Commit message editor: cancel (keeps the draft)",
   next_section = "Next section",
   prev_section = "Previous section",
   refresh = "Refresh",
-  close = "Close (commit editor / details first)",
+  close = "Close (commit details first)",
   help = "Show this help",
 }
 
@@ -405,15 +358,11 @@ M.order = {
   "stash_pop",
   "stash_apply",
   "stash_drop",
-  "commit",
-  "revert",
   "next_section",
   "prev_section",
   "refresh",
   "help",
   "close",
-  "commit_submit",
-  "commit_abort",
 }
 
 ---@param view GitView
@@ -542,18 +491,6 @@ function M.attach(view)
         M.stash(view, "drop")
       end,
     },
-    commit = {
-      "n",
-      function()
-        M.commit(view)
-      end,
-    },
-    revert = {
-      "n",
-      function()
-        M.revert(view)
-      end,
-    },
     next_section = {
       { "n", "x" },
       function()
@@ -575,9 +512,7 @@ function M.attach(view)
     close = {
       "n",
       function()
-        if view.editor then
-          view:stop_commit()
-        elseif view.commit then
+        if view.commit then
           view:hide_commit()
         else
           view:close()
