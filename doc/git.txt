@@ -26,15 +26,15 @@ current directory) in up to five panels:
   Files      conflicted, staged, unstaged and untracked files with +/- line
              counts; diffs can be expanded inline
   Graph      a lane-based graph of the most recent commits, including the
-             upstream's when it is ahead; unpushed and incoming (not yet
-             pulled) commits get a background color
+             upstream's when it is ahead; unpushed commits are marked `!`,
+             incoming (not yet pulled) ones get a background color
 
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
-Unpushed commits on top of the upstream branch are drawn as `!` on a side
-lane that joins the upstream commit (`├─╯`); once pushed, the graph is a
-straight line again.
+Unpushed commits are marked with `!`. When they sit on top of the upstream
+branch, they are drawn on a side lane that joins the upstream commit
+(`├─╯`); once pushed, the graph is a straight line again.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
 split the height left after Branches, Tags and Stashes evenly and scroll on their
@@ -217,14 +217,12 @@ with |nvim_set_hl()| are left alone.
   GitStatusGraph            graph lines            -> Comment
   GitStatusGraphCommit      commit node            -> Function
   GitStatusGraphMerge       merge node             -> Statement
-  GitStatusGraphUnpushed    unpushed node (!)      -> Added
+  GitStatusGraphUnpushed    unpushed node and !    -> Added
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   -> Added
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
-  GitStatusUnpushedLine     unpushed commit row    translucent green background
-                                                   (blended over the window's)
   GitStatusIncomingLine     incoming commit row    amber background
-  GitStatusDeco             ref names (own line)   grey (#8a8a8a)
+  GitStatusDeco             ref names (line above) grey (#8a8a8a)
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
 

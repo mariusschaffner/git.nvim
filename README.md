@@ -26,22 +26,23 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │   ?  my notes.md (new)                                                     │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Graph ───────────────────────────────────────────────────────────────────╮
-│  ○ 181024a (origin/main) upstream fix                                      │
-│  │ ○ bc8d9a4 add x                                                         │
-│  │ │ HEAD -> main                                                          │
-│  │ ○ a1b2c3d refactor                                                      │
+│    origin/main                                                             │
+│  ○ 181024a upstream fix                                                    │
+│  │   HEAD -> main                                                          │
+│  │ ○ ! bc8d9a4 add x                                                       │
+│  │ ○ ! a1b2c3d refactor                                                    │
 │  ├─╯                                                                       │
-│  ● 149f297 Merge branch 'feature'                                          │
 │  │ tag: v1.0                                                               │
+│  ● 149f297 Merge branch 'feature'                                          │
 │  ├─╮                                                                       │
-│  │ ○ d72be35 feature work                                                  │
 │  │ │ feature                                                               │
-│  ○ │ 36b513e main work                                                     │
+│  │ ○ d72be35 feature work                                                  │
 │  ├─╯                                                                       │
+│  ○ 36b513e main work                                                       │
 │  ○ c682273 initial commit                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
-(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line below their commit; unpushed and incoming commits get a green / amber row background. Unpushed commits on top of the upstream are drawn as `!` on a side lane that joins the upstream commit, until they are pushed.)
+(shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed commits are marked `!` and incoming ones get an amber row background. Unpushed commits on top of the upstream are drawn on a side lane that joins the upstream commit, until they are pushed.)
 
 The view always fits its window: Files and Graph share the space below the other boxes and scroll on their own (`j`/`k` past a box edge, `<C-d>`/`<C-u>` & co., mouse wheel). While a diff is open only the Files box is shown; `<CR>` on a commit shows only the Graph (30%) and the commit's details (70%).
 

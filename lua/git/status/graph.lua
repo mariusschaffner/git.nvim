@@ -23,11 +23,11 @@ local GLYPH = {
 
 M.COMMIT = "○"
 M.MERGE = "●"
-M.UNPUSHED = "!"
 
 ---@class GitGraphRow
 ---@field segments { [1]: string, [2]: string }[] Lane glyphs as {text, highlight group}
 ---@field commit GitCommit? Set on commit rows, nil on transition rows
+---@field fresh boolean? Commit rows: the commit starts a lane here (nothing above connects to it)
 
 local bor = bit.bor
 
@@ -62,7 +62,8 @@ local function lanes_layout(commits)
   end
 
   for _, c in ipairs(commits) do
-    local idx = find(c.hash) or claim(c.hash)
+    local found = find(c.hash)
+    local idx = found or claim(c.hash)
     local is_merge = #c.parents > 1
 
     -- commit row
@@ -77,7 +78,7 @@ local function lanes_layout(commits)
         segs[#segs + 1] = { lanes[col] and "│" or " ", "GitStatusGraph" }
       end
     end
-    rows[#rows + 1] = { segments = segs, commit = c }
+    rows[#rows + 1] = { segments = segs, commit = c, fresh = not found }
 
     -- assign parents to lanes; each edge is a horizontal connection drawn in the transition row
     local was_active = {}
@@ -178,24 +179,27 @@ function M.layout(commits, opts)
   local rows = {}
   for i = 1, n do
     rows[i] = {
-      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.UNPUSHED, "GitStatusGraphUnpushed" } },
+      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.COMMIT, "GitStatusGraphUnpushed" } },
       commit = commits[i],
+      fresh = i == 1,
     }
   end
   rows[#rows + 1] = { segments = { { "├", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "╯", "GitStatusGraph" } } }
-  return vim.list_extend(rows, lanes_layout(vim.list_slice(commits, n + 1)))
+  local rest = lanes_layout(vim.list_slice(commits, n + 1))
+  rest[1].fresh = false -- the junction above leads into it
+  return vim.list_extend(rows, rest)
 end
 
---- Lane glyphs for an extra line below a commit row (e.g. for its ref names): the other lanes pass
---- straight through, the commit's own lane continues down unless it is a root commit.
+--- Lane glyphs for an extra line above a commit row (e.g. for its ref names): the other lanes pass
+--- straight through, the commit's own lane comes down from above unless the commit starts it.
 ---@param row GitGraphRow A commit row
 ---@return { [1]: string, [2]: string }[]
-function M.continuation(row)
+function M.above(row)
   local out = {}
   for i, seg in ipairs(row.segments) do
     local t = seg[1]
-    if t == M.COMMIT or t == M.MERGE or t == M.UNPUSHED then
-      t = #row.commit.parents > 0 and "│" or " "
+    if t == M.COMMIT or t == M.MERGE then
+      t = row.fresh and " " or "│"
     end
     out[i] = { t, "GitStatusGraph" }
   end

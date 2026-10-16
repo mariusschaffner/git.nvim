@@ -315,7 +315,7 @@ function View:redraw(opts)
   local target
   for lnum, it in pairs(r.items) do
     local k = render.item_key(it)
-    if (key and k == key) or (first_render and it.kind == "file") then
+    if (key and k == key and not it.refs) or (first_render and it.kind == "file") then
       if not target or lnum < target then
         target = lnum
       end

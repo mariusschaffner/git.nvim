@@ -12,6 +12,7 @@ local M = {}
 ---@field stash GitStash?
 ---@field hash string?
 ---@field diff_line integer? Index into the expanded diff lines (diff items only)
+---@field refs boolean? Commit items: the ref names line above the commit (the cursor prefers the commit line)
 
 ---@class GitRendered
 ---@field lines string[]
@@ -478,21 +479,22 @@ local function commit_graph(state)
     if c then
       local hash_hl = "GitStatusHash"
       if state.unpushed[c.hash] then
-        hash_hl, line_hl = "GitStatusHashUnpushed", "GitStatusUnpushedLine"
+        hash_hl = "GitStatusHashUnpushed"
+        add(segs, { " !", "GitStatusGraphUnpushed" })
       elseif state.incoming[c.hash] then
         hash_hl, line_hl = "GitStatusHashIncoming", "GitStatusIncomingLine"
       end
       add(segs, { " " .. c.abbrev, hash_hl })
       add(segs, { " " .. c.subject, "GitStatusSubject" })
       item = { kind = "commit", hash = c.hash }
+      if c.deco ~= "" then
+        -- Ref names on their own line above the commit, aligned with the node's text.
+        local deco = vim.list_extend({ { " " } }, graph.above(r))
+        add(deco, { " " .. c.deco, "GitStatusDeco" })
+        out[#out + 1] = { segs = deco, item = vim.tbl_extend("force", item, { refs = true }), line_hl = line_hl }
+      end
     end
     out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
-    if c and c.deco ~= "" then
-      -- Ref names on their own line below the commit, aligned with the hash.
-      local deco = vim.list_extend({ { " " } }, graph.continuation(r))
-      add(deco, { " " .. c.deco, "GitStatusDeco" })
-      out[#out + 1] = { segs = deco, item = item, line_hl = line_hl }
-    end
   end
   return out
 end
@@ -617,7 +619,7 @@ function M.render(state, opts)
     local offset = (opts.scroll or {})[name] or 0
     if opts.focus then
       for i, c in ipairs(content) do
-        if M.item_key(c.item) == opts.focus then
+        if M.item_key(c.item) == opts.focus and not c.item.refs then
           offset = math.min(math.max(offset, i - rows), i - 1)
           break
         end

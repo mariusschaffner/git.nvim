@@ -88,17 +88,17 @@ describe("graph.layout", function()
     eq({}, graph.layout({}))
   end)
 
-  it("continues the lanes below a commit row", function()
+  it("continues the lanes above a commit row", function()
     local rows = graph.layout({ c("m", "a", "b"), c("b", "a"), c("a") })
-    local function cont(row)
+    local function above(row)
       return table.concat(vim.tbl_map(function(seg)
         return seg[1]
-      end, graph.continuation(row)))
+      end, graph.above(row)))
     end
-    eq("│", cont(rows[1])) -- merge continues down
+    eq(" ", above(rows[1])) -- the tip starts its lane
     local root = rows[#rows]
     eq("a", root.commit.hash)
-    eq(" ", cont(root)) -- root commit ends
+    eq("│", above(root)) -- reached from its children
   end)
 
   it("draws unpushed commits at the tip on a side lane joining the upstream commit", function()
@@ -111,9 +111,12 @@ describe("graph.layout", function()
       end, row.segments))
       out[i] = (s:gsub("%s+$", "")) .. (row.commit and (" " .. row.commit.hash) or "")
     end
-    eq({ "  ! u2", "  ! u1", "├─╯", "○ p2", "○ p1" }, out)
+    eq({ "  ○ u2", "  ○ u1", "├─╯", "○ p2", "○ p1" }, out)
     eq("GitStatusGraphUnpushed", rows[1].segments[3][2])
-    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraph" } }, graph.continuation(rows[1]))
+    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" } }, graph.above(rows[1]))
+    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraph" } }, graph.above(rows[2]))
+    -- the junction leads into the upstream commit
+    eq({ { "│", "GitStatusGraph" } }, graph.above(rows[4]))
     -- once pushed (or when nothing is pushed yet) the graph is straight again
     eq({ "○ u2", "○ u1", "○ p2", "○ p1" }, draw(commits))
     eq(4, #graph.layout(commits, { unpushed = { u2 = true, u1 = true, p2 = true, p1 = true } }))

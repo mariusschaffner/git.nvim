@@ -141,19 +141,20 @@ describe("render", function()
       unpushed = { h1 = true },
     })
     local r = render.render(s, { width = 80 })
-    -- ref names go on their own line below the commit, aligned with the hash
+    -- ref names go on their own line above the commit; unpushed commits are marked with !
     local lnum
     for l, it in pairs(r.items) do
-      if it.kind == "commit" and (not lnum or l < lnum) then
+      if it.kind == "commit" and not it.refs then
         lnum = l
       end
     end
-    matches("│  ○ h1 first ", r.lines[lnum])
-    matches("│    HEAD %-> main ", r.lines[lnum + 1])
-    eq("h1", r.items[lnum + 1].hash)
+    matches("│  ○ ! h1 first ", r.lines[lnum])
+    matches("│    HEAD %-> main ", r.lines[lnum - 1])
+    eq("h1", r.items[lnum - 1].hash)
+    eq(true, r.items[lnum - 1].refs)
     local deco_hl
     for _, m in ipairs(r.marks) do
-      if m.row == lnum and m.hl == "GitStatusDeco" then
+      if m.row == lnum - 2 and m.hl == "GitStatusDeco" then
         deco_hl = m
       end
     end
@@ -183,7 +184,7 @@ describe("render", function()
     ok(not text(render.render(state(), { width = 200 })):find("Tags"))
   end)
 
-  it("gives unpushed and incoming commit rows a background", function()
+  it("gives incoming commit rows a background, unpushed ones none", function()
     local s = state({
       graph = {
         { hash = "in", abbrev = "in", parents = { "base" }, deco = "origin/main", subject = "theirs" },
@@ -203,7 +204,7 @@ describe("render", function()
         eq(#r.lines[m.row + 1] - #" │", m.end_col)
       end
     end
-    eq({ ["in"] = "GitStatusIncomingLine", out = "GitStatusUnpushedLine" }, line_hl)
+    eq({ ["in"] = "GitStatusIncomingLine" }, line_hl)
   end)
 
   it("shows only the files while diffs are open, only graph and commit while a commit is shown", function()
