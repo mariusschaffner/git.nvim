@@ -254,4 +254,26 @@ describe("render", function()
     matches("| %- stage", text(r))
     ok(not text(r):find("discard"))
   end)
+
+  it("replaces the files box with a commit message box while composing", function()
+    local f = { path = "x.lua", code = "M", section = "staged" }
+    local s = state({
+      files = { staged = { f } },
+      graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "", subject = "first" } },
+    })
+    local r = render.render(s, { width = 60, height = 20, compose = true, commit = { hash = "h1", lines = {} } })
+    eq(20, #r.lines)
+    eq(nil, r.boxes.files)
+    eq(nil, r.boxes.commit)
+    ok(r.boxes.graph, "graph stays")
+    eq({ top = 6, rows = 6, offset = 0, total = 0 }, r.boxes.compose)
+    matches("Commit message %(1 staged file%)", r.lines[5])
+    matches("<C%-s> commit · q cancel", r.lines[12])
+    ok(not text(r):find("x%.lua"))
+
+    -- without a fixed height the box gets a fixed number of rows
+    r = render.render(s, { width = 60, compose = true })
+    eq(render.COMPOSE_ROWS, r.boxes.compose.rows)
+    matches("Commit message", r.lines[r.boxes.compose.top - 1])
+  end)
 end)
