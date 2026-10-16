@@ -29,6 +29,8 @@ M.ns = ns
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
 ---@field zoom ("files"|"graph")? Box shown alone over the full height
+---@field graph_limit integer? Commits to load into the graph (set while it is zoomed; grows when scrolling down)
+---@field loading_more boolean
 ---@field editor GitEditor? Commit message editor, overlaid on the "compose" box
 ---@field draft string[]? Commit message kept from a cancelled editor
 ---@field generation integer
@@ -90,6 +92,28 @@ local WIN_OPTS = {
   winfixbuf = true,
 }
 
+--- which-key adds buffer-local triggers such as `z=` (spelling). Next to the view's single-key maps (`z`)
+--- Neovim then waits 'timeoutlen' for a second key, which makes those keys feel slow. Keep which-key out of the
+--- view's buffer: add the filetype to its disable list (only if it is loaded) and drop triggers it already added.
+---@param buf integer
+local function keep_which_key_out(buf)
+  local wk = package.loaded["which-key.config"]
+  local ft = type(wk) == "table" and type(wk.disable) == "table" and wk.disable.ft
+  if type(ft) == "table" and not vim.tbl_contains(ft, "gitstatus") then
+    table.insert(ft, "gitstatus")
+  end
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  for _, mode in ipairs({ "n", "x" }) do
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
+      if m.desc and m.desc:find("which-key-trigger", 1, true) then
+        pcall(vim.keymap.del, mode, m.lhs, { buffer = buf })
+      end
+    end
+  end
+end
+
 local function set_win_opts(win)
   for name, value in pairs(WIN_OPTS) do
     -- winfixbuf only exists on 0.10+, but other future-missing options should not break opening either.
@@ -144,6 +168,11 @@ function View.new(repo, kind)
 
   -- Set last, so FileType autocmds see a fully set-up buffer (e.g. to add keymaps).
   vim.bo[buf].filetype = "gitstatus"
+  keep_which_key_out(buf)
+  -- Again once the events of opening the window have run (which-key attaches on some of them).
+  vim.schedule(function()
+    keep_which_key_out(buf)
+  end)
   return self
 end
 
@@ -342,6 +371,37 @@ function View:redraw(opts)
     vim.fn.winrestview({ topline = 1 })
   end)
   self:_place_editor()
+  self:_maybe_load_more()
+end
+
+--- Show only the Files or Graph box (nil: all boxes). A zoomed graph loads the history page by page.
+---@param box ("files"|"graph")?
+function View:set_zoom(box)
+  if self.zoom == box then
+    return
+  end
+  local had_more = self.graph_limit ~= nil
+  self.zoom = box
+  self.graph_limit = box == "graph" and config.options.status.graph.zoom_page or nil
+  self:redraw()
+  if self.graph_limit or had_more then
+    self:refresh()
+  end
+end
+
+--- In the zoomed graph, load the next page of history once its end is in view.
+function View:_maybe_load_more()
+  local b = self.rendered and self.rendered.boxes.graph
+  if self.zoom ~= "graph" or not self.graph_limit or self.loading_more or not b or not self.state then
+    return
+  end
+  if #self.state.graph >= self.graph_limit and b.offset + b.rows >= b.total then
+    self.loading_more = true
+    self.graph_limit = self.graph_limit + config.options.status.graph.zoom_page
+    vim.schedule(function()
+      self:refresh()
+    end)
+  end
 end
 
 --- Open (or reposition) the editor window over the content rows of the "compose" box.
@@ -772,6 +832,7 @@ function View:refresh(cb)
       return
     end
     if not state then
+      self.loading_more = false
       util.notify(err or "git status failed", vim.log.levels.ERROR)
       return
     end
@@ -780,13 +841,14 @@ function View:refresh(cb)
         return
       end
       self.state = state
+      self.loading_more = false
       self:redraw()
       self:_maybe_fetch_tags(state)
       if cb then
         cb()
       end
     end)
-  end)
+  end, { max_commits = self.graph_limit })
 end
 
 --- Re-fetch the expanded diffs for files that still exist; forget the others.

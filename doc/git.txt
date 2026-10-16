@@ -95,7 +95,7 @@ Buffer-local mappings in the status view (press `?` for this list):
   u         Unstage (same targets as `s`).
   X         Discard unstaged changes / delete untracked files. Asks first.
             Staged changes must be unstaged before they can be discarded.
-  <Tab> =   Toggle the inline diff of a file (on a header: of all files).
+  <Tab>     Toggle the inline diff of a file (on a header: of all files).
   <CR>      Open the file (on a diff line: at that line) or the stash
             (`git stash show -p`). On a commit: toggle its details box. The
             cursor moves into the details; `k` on their first line goes to
@@ -118,7 +118,9 @@ Buffer-local mappings in the status view (press `?` for this list):
   f         Fetch (`git fetch`) the branch's remote; a spinner shows in the
             Branches box meanwhile, then incoming commits show in the graph.
   z         In the Files or Graph box: show only that box, over the whole
-            window. `z` again (or `q`) shows all boxes again.
+            window. `z` again (or `q`) shows all boxes again. A zoomed
+            graph shows the whole history: it loads `graph.zoom_page`
+            commits at a time, the next page when you scroll to its end.
   q <Esc>   Close the commit message editor, the commit details or the
             zoom if open, else the view. <Esc> only closes floating views.
   ?         Show the keymaps of the box under the cursor (in the commit
@@ -133,7 +135,10 @@ In the commit message editor:
             draft and comes back on the next `c c`.
 
 The view's buffer has 'filetype' `gitstatus`, so a |FileType| autocommand
-can add further mappings.
+can add further mappings. Mappings that start with one of the view's keys
+make that key wait 'timeoutlen' for more input. which-key.nvim adds such
+mappings (e.g. `z=`), so the view keeps it out of its buffer: it adds
+`gitstatus` to which-key's `disable.ft` and removes its triggers there.
 
 ==============================================================================
 6. CONFIGURATION                                               *git-config*
@@ -154,7 +159,9 @@ Defaults: >lua
         border = "none",   -- a |nvim_open_win()| border; "none" drops the title
       },
       protected_branches = { "main", "master" }, -- marked in the HEAD line
-      graph = { max_commits = 12 },
+      -- zoom_page: commits loaded at a time while the graph is zoomed;
+      -- scrolling to its end loads the next page
+      graph = { max_commits = 12, zoom_page = 200 },
       stash = { max = 5 },
       diff = { max_lines = 500 },  -- per inline diff
       untracked_files = "normal",  -- "normal" | "all" | "no"
@@ -173,7 +180,7 @@ Defaults: >lua
         stage = "s",
         unstage = "u",
         discard = "X",
-        toggle_diff = { "<Tab>", "=" },
+        toggle_diff = "<Tab>",
         open = "<CR>",
         stash_pop = "P",
         stash_apply = "A",

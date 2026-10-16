@@ -738,4 +738,91 @@ describe("ui", function()
     vim.api.nvim_feedkeys("z", "x", false)
     eq(nil, view.zoom)
   end)
+
+  it("loads the history page by page while the graph is zoomed", function()
+    require("git.config").setup({ status = { auto_refresh = false, graph = { max_commits = 5, zoom_page = 30 } } })
+    vim.o.lines = 24 -- a page is taller than the zoomed graph
+    for i = 1, 69 do
+      H.git(dir, { "commit", "--quiet", "--allow-empty", "-m", "c" .. i })
+    end
+    local view = open(dir, "float")
+    eq(5, #view.state.graph)
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "commit" and not it.refs
+    end)), 0 })
+    local function settled(n)
+      return vim.wait(10000, function()
+        return #view.state.graph == n and not view.loading_more
+      end, 10)
+    end
+    vim.api.nvim_feedkeys("z", "x", false)
+    ok(settled(30), "first page")
+    -- scrolling to the end loads the next pages, until the history ends (70 commits)
+    view:scroll_box("graph", 1000)
+    ok(settled(60), "second page")
+    view:scroll_box("graph", 1000)
+    ok(settled(70), "rest")
+    view:scroll_box("graph", 1000)
+    vim.wait(200)
+    eq(70, #view.state.graph)
+    eq("init", view.state.graph[70].subject)
+    -- unzoomed: back to the short graph
+    vim.api.nvim_feedkeys("z", "x", false)
+    ok(settled(5), "short graph again")
+  end)
+
+  it("keeps which-key triggers out of the view so single-key maps fire at once", function()
+    local fake = { disable = { ft = {}, bt = {} } }
+    package.loaded["which-key.config"] = fake
+    local au = vim.api.nvim_create_autocmd("FileType", {
+      pattern = "gitstatus",
+      callback = function(args)
+        -- what which-key does for its spelling preset
+        vim.keymap.set("n", "z=", "<Nop>", { buffer = args.buf, nowait = true, desc = "which-key-trigger spelling" })
+      end,
+    })
+    local view = open(dir, "float")
+    vim.wait(50)
+    vim.api.nvim_del_autocmd(au)
+    package.loaded["which-key.config"] = nil
+    eq({ "gitstatus" }, fake.disable.ft)
+    local lhs = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(view.buf, "n")) do
+      if m.lhs:sub(1, 1) == "z" then
+        lhs[#lhs + 1] = m.lhs
+      end
+    end
+    eq({ "z" }, lhs)
+  end)
+
+  it("shows the commit menu as a centered popup like the help", function()
+    H.write(dir, "tracked.txt", { "two" })
+    H.git(dir, { "add", "tracked.txt" })
+    local view = open(dir, "float")
+    local popup = actions.popup
+    local shown
+    actions.popup = function(entries, title, opts)
+      local win = popup(entries, title, opts)
+      local cfg = vim.api.nvim_win_get_config(win)
+      shown = {
+        title = title,
+        lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false),
+        relative = cfg.relative,
+        col = cfg.col,
+        width = cfg.width,
+        border = cfg.border[1],
+      }
+      return win
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("c<Esc>", true, false, true), "x", false)
+    actions.popup = popup
+    ok(shown, "menu shown")
+    eq(" Commit ", shown.title)
+    eq("editor", shown.relative)
+    eq("╭", shown.border)
+    ok(math.abs(shown.col - (vim.o.columns - shown.width) / 2) <= 2, "centered")
+    matches("^ c  .*Commit staged changes $", shown.lines[1])
+    matches("^ a  .*Amend last commit $", shown.lines[2])
+    eq(nil, view.editor, "<Esc> picks nothing")
+  end)
 end)

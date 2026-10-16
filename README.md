@@ -26,20 +26,20 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │   ?  my notes.md (new)                                                     │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Graph ───────────────────────────────────────────────────────────────────╮
-│    origin/main                                                             │
-│  ○ 181024a upstream fix                                                    │
-│  │   HEAD -> main                                                          │
+│        origin/main                                                         │
+│  ○   ! 181024a upstream fix                                                │
+│  │     HEAD -> main                                                        │
 │  │ ○ ! bc8d9a4 add x                                                       │
 │  │ ○ ! a1b2c3d refactor                                                    │
 │  ├─╯                                                                       │
-│  │ tag: v1.0                                                               │
-│  ● 149f297 Merge branch 'feature'                                          │
+│  │     tag: v1.0                                                           │
+│  ●     149f297 Merge branch 'feature'                                      │
 │  ├─╮                                                                       │
-│  │ │ feature                                                               │
-│  │ ○ d72be35 feature work                                                  │
+│  │ │   feature                                                             │
+│  │ ○   d72be35 feature work                                                │
 │  ├─╯                                                                       │
-│  ○ 36b513e main work                                                       │
-│  ○ c682273 initial commit                                                  │
+│  ○     36b513e main work                                                   │
+│  ○     c682273 initial commit                                              │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 (shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed and incoming commits are marked `!`, incoming ones also get an amber row background. Unpushed commits on top of the upstream, and incoming commits on top of HEAD, are drawn on a side lane to the right (`├─╯`) until they are pushed / pulled.)
@@ -85,7 +85,7 @@ require("git").setup({
 |---|---|
 | `s` / `u` | stage / unstage the file, a whole section (on its header), or a visual selection |
 | `X` | discard unstaged changes / delete untracked files (asks first) |
-| `<Tab>` / `=` | toggle inline diff |
+| `<Tab>` | toggle inline diff |
 | `<CR>` | open file (on a diff line: at that line) or stash; on a commit: toggle its details box (the cursor moves into it; `k` at its top goes to the top of the graph); on commits selected in Visual mode: their details combined |
 | `P` / `A` / `D` | pop / apply / drop stash |
 | `c c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft). `c` alone shows a popup with the choices |
@@ -93,7 +93,7 @@ require("git").setup({
 | `r` | on a commit in the graph: revert it (asks first) |
 | `R` | on an unpushed commit in the graph: change its message |
 | `f` | fetch (a spinner shows in the Branches box meanwhile) |
-| `z` | in the Files or Graph box: show only that box over the whole window; `z` or `q` to go back |
+| `z` | in the Files or Graph box: show only that box over the whole window (a zoomed graph loads the full history as you scroll); `z` or `q` to go back |
 | `q` / `<Esc>` | close the commit editor, details or zoom if open, else the view (`<Esc>` only for floats) |
 | `?` | help: the keymaps of the box under the cursor |
 

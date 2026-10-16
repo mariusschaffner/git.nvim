@@ -5,7 +5,7 @@ local M = {}
 ---@class GitStatusConfig
 ---@field window { kind: GitWindowKind, width: number, height: number, border: string|string[] }
 ---@field protected_branches string[]
----@field graph { max_commits: integer }
+---@field graph { max_commits: integer, zoom_page: integer }
 ---@field stash { max: integer }
 ---@field diff { max_lines: integer }
 ---@field untracked_files "normal"|"all"|"no"
@@ -34,7 +34,8 @@ M.defaults = {
       border = "none",
     },
     protected_branches = { "main", "master" },
-    graph = { max_commits = 12 },
+    -- zoom_page: commits loaded at a time while the graph is zoomed (more load when scrolling to the end)
+    graph = { max_commits = 12, zoom_page = 200 },
     stash = { max = 5 },
     diff = { max_lines = 500 },
     untracked_files = "normal",
@@ -52,7 +53,7 @@ M.defaults = {
       stage = "s",
       unstage = "u",
       discard = "X",
-      toggle_diff = { "<Tab>", "=" },
+      toggle_diff = "<Tab>",
       open = "<CR>",
       stash_pop = "P",
       stash_apply = "A",
@@ -118,6 +119,7 @@ local function validate(o)
   check("status.window.width", s.window.width, "number")
   check("status.window.height", s.window.height, "number")
   check("status.graph.max_commits", s.graph.max_commits, "number")
+  check("status.graph.zoom_page", s.graph.zoom_page, "number")
   check("status.stash.max", s.stash.max, "number")
   check("status.diff.max_lines", s.diff.max_lines, "number")
   check("status.tags.check_remote", s.tags.check_remote, "boolean")
@@ -216,6 +218,8 @@ local NERD = {
   ahead = "\u{eaa1} ",
   protected = " \u{ea6c}",
   stash = "\u{f187} ",
+  commit = "\u{f417} ",
+  amend = "\u{f044} ",
   warning = "\u{f071} ",
   conflicted = "\u{f467} ",
   staged = "\u{f067} ",
@@ -241,6 +245,8 @@ local ASCII = {
   ahead = "^",
   protected = " (protected)",
   stash = "",
+  commit = "",
+  amend = "",
   warning = "! ",
   conflicted = "",
   staged = "",

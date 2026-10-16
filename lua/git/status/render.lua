@@ -467,30 +467,61 @@ local function commit_graph(state)
     end
     return out
   end
-  for _, r in ipairs(graph.layout(state.graph, { unpushed = state.unpushed, incoming = state.incoming })) do
-    local segs = vim.list_extend({ { " " } }, r.segments)
-    local item, line_hl
+  local rows = graph.layout(state.graph, { unpushed = state.unpushed, incoming = state.incoming })
+  -- All text starts in one column: lane glyphs are padded to the widest row, followed by a marker column
+  -- (" !" for unpushed / incoming commits) when any commit has a marker.
+  local lanes_width, markers = 0, false
+  for _, r in ipairs(rows) do
+    local w = 0
+    for _, seg in ipairs(r.segments) do
+      w = w + util.width(seg[1])
+    end
+    lanes_width = math.max(lanes_width, w)
+    if r.commit and (state.unpushed[r.commit.hash] or state.incoming[r.commit.hash]) then
+      markers = true
+    end
+  end
+  ---@param lane_segs GitSeg[]
+  ---@param marker GitSeg?
+  local function prefix(lane_segs, marker)
+    local segs = vim.list_extend({ { " " } }, lane_segs)
+    local w = 0
+    for _, seg in ipairs(lane_segs) do
+      w = w + util.width(seg[1])
+    end
+    if w < lanes_width then
+      segs[#segs + 1] = { string.rep(" ", lanes_width - w) }
+    end
+    if markers then
+      segs[#segs + 1] = marker or { "  " }
+    end
+    return segs
+  end
+
+  for _, r in ipairs(rows) do
     local c = r.commit
-    if c then
-      local hash_hl = "GitStatusHash"
+    if not c then
+      out[#out + 1] = { segs = prefix(r.segments) }
+    else
+      local hash_hl, line_hl, marker = "GitStatusHash", nil, nil
       if state.unpushed[c.hash] then
-        hash_hl = "GitStatusHashUnpushed"
-        add(segs, { " !", "GitStatusGraphUnpushed" })
+        hash_hl, marker = "GitStatusHashUnpushed", { " !", "GitStatusGraphUnpushed" }
       elseif state.incoming[c.hash] then
         hash_hl, line_hl = "GitStatusHashIncoming", "GitStatusIncomingLine"
-        add(segs, { " !", "GitStatusGraphIncoming" })
+        marker = { " !", "GitStatusGraphIncoming" }
       end
-      add(segs, { " " .. c.abbrev, hash_hl })
-      add(segs, { " " .. c.subject, "GitStatusSubject" })
-      item = { kind = "commit", hash = c.hash }
+      local item = { kind = "commit", hash = c.hash }
       if c.deco ~= "" then
-        -- Ref names on their own line above the commit, aligned with the node's text.
-        local deco = vim.list_extend({ { " " } }, graph.above(r))
+        -- Ref names on their own line above the commit, in the text column.
+        local deco = prefix(graph.above(r))
         add(deco, { " " .. c.deco, "GitStatusDeco" })
         out[#out + 1] = { segs = deco, item = vim.tbl_extend("force", item, { refs = true }), line_hl = line_hl }
       end
+      local segs = prefix(r.segments, marker)
+      add(segs, { " " .. c.abbrev, hash_hl })
+      add(segs, { " " .. c.subject, "GitStatusSubject" })
+      out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
     end
-    out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
   end
   return out
 end

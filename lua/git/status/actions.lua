@@ -295,42 +295,18 @@ end
 --- The commit menu: a popup lists the follow-up keys (commit / amend) and the next key picks one.
 ---@param view GitView
 function M.commit(view)
+  local ic = config.icons()
   local entries = {}
-  for _, e in ipairs({ { "commit_create", "commit", M.create }, { "commit_amend", "amend", M.amend } }) do
+  for _, e in ipairs({
+    { "commit_create", ic.commit .. "Commit staged changes", M.create },
+    { "commit_amend", ic.amend .. "Amend last commit", M.amend },
+  }) do
     local key = config.key(e[1])
     if key then
-      entries[#entries + 1] = { key = key, label = e[2], fn = e[3] }
+      entries[#entries + 1] = { key, e[2], fn = e[3] }
     end
   end
-  local lines, width = {}, 0
-  for i, e in ipairs(entries) do
-    lines[i] = (" %s  %s "):format(e.key, e.label)
-    width = math.max(width, vim.fn.strdisplaywidth(lines[i]))
-  end
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].bufhidden = "wipe"
-  for i, e in ipairs(entries) do
-    vim.api.nvim_buf_set_extmark(buf, vim.api.nvim_create_namespace("git.nvim.menu"), i - 1, 1, {
-      end_col = 1 + #e.key,
-      hl_group = "GitStatusLabel",
-    })
-  end
-  local win = vim.api.nvim_open_win(buf, false, {
-    relative = "cursor",
-    row = 1,
-    col = 0,
-    width = math.max(width, 10),
-    height = #lines,
-    style = "minimal",
-    border = "rounded",
-    title = " Commit ",
-    title_pos = "center",
-    focusable = false,
-    zindex = 60,
-    noautocmd = true,
-  })
-  vim.wo[win].winhighlight = "FloatTitle:GitStatusFloatTitle,FloatBorder:GitStatusBorder"
+  local win = M.popup(entries, " Commit ", { enter = false })
   vim.cmd("redraw")
   local ok, char = pcall(vim.fn.getcharstr)
   pcall(vim.api.nvim_win_close, win, true)
@@ -338,7 +314,7 @@ function M.commit(view)
     return
   end
   for _, e in ipairs(entries) do
-    if char == vim.api.nvim_replace_termcodes(e.key, true, false, true) then
+    if char == vim.api.nvim_replace_termcodes(e[1], true, false, true) then
       e.fn(view)
       return
     end
@@ -349,16 +325,15 @@ end
 ---@param view GitView
 function M.zoom(view)
   if view.zoom then
-    view.zoom = nil
-  else
-    local box = M.box_at(view, vim.api.nvim_win_get_cursor(view.win)[1])
-    if box ~= "files" and box ~= "graph" then
-      util.notify("Zoom works on the Files and Graph boxes")
-      return
-    end
-    view.zoom = box
+    view:set_zoom(nil)
+    return
   end
-  view:redraw()
+  local box = M.box_at(view, vim.api.nvim_win_get_cursor(view.win)[1])
+  if box ~= "files" and box ~= "graph" then
+    util.notify("Zoom works on the Files and Graph boxes")
+    return
+  end
+  view:set_zoom(box)
 end
 
 --- Commit the staged changes: the files box turns into a message editor.
@@ -661,33 +636,36 @@ function M.help_entries(box)
   return out
 end
 
---- Show the keymaps relevant to the box under the cursor (or `box`) in a bordered float.
----@param view GitView
----@param box string? Defaults to the box under the cursor in the view
-function M.help(view, box)
-  local from = vim.api.nvim_get_current_win()
-  if not box and from == view.win then
-    box = M.box_at(view, vim.api.nvim_win_get_cursor(view.win)[1])
+local popup_ns = vim.api.nvim_create_namespace("git.nvim.popup")
+
+--- A bordered popup centered in the editor listing `{ key, description }` rows, keys highlighted.
+---@param entries { [1]: string, [2]: string }[]
+---@param title string
+---@param opts { enter: boolean }
+---@return integer win
+function M.popup(entries, title, opts)
+  local key_width = 0
+  for _, e in ipairs(entries) do
+    key_width = math.max(key_width, vim.fn.strdisplaywidth(e[1]))
   end
-  local lines = {}
-  local width = 0
-  for _, e in ipairs(M.help_entries(box)) do
-    local line = (" %-12s %s "):format(e[1], e[2])
-    lines[#lines + 1] = line
-    width = math.max(width, vim.fn.strdisplaywidth(line))
+  local lines, width = {}, vim.fn.strdisplaywidth(title) + 2
+  for i, e in ipairs(entries) do
+    lines[i] = " " .. e[1] .. string.rep(" ", key_width - vim.fn.strdisplaywidth(e[1]) + 2) .. e[2] .. " "
+    width = math.max(width, vim.fn.strdisplaywidth(lines[i]))
   end
-  local title = " " .. (box and (BOX_TITLE[box] .. " ") or "git.nvim ") .. "keymaps "
-  width = math.max(width, vim.fn.strdisplaywidth(title) + 2)
-  -- The view itself may be borderless; the popup always gets a border.
+  -- The view itself may be borderless; popups always get a border.
   local border = config.options.status.window.border
   if border == "none" or border == "" then
     border = "rounded"
   end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  for i, e in ipairs(entries) do
+    vim.api.nvim_buf_set_extmark(buf, popup_ns, i - 1, 1, { end_col = 1 + #e[1], hl_group = "GitStatusLabel" })
+  end
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
-  local win = vim.api.nvim_open_win(buf, true, {
+  local win = vim.api.nvim_open_win(buf, opts.enter, {
     relative = "editor",
     width = width,
     height = #lines,
@@ -697,9 +675,24 @@ function M.help(view, box)
     border = border,
     title = title,
     title_pos = "center",
+    focusable = opts.enter,
     zindex = 60,
   })
   vim.wo[win].winhighlight = "FloatTitle:GitStatusFloatTitle,FloatBorder:GitStatusBorder"
+  return win
+end
+
+--- Show the keymaps relevant to the box under the cursor (or `box`) in a bordered float.
+---@param view GitView
+---@param box string? Defaults to the box under the cursor in the view
+function M.help(view, box)
+  local from = vim.api.nvim_get_current_win()
+  if not box and from == view.win then
+    box = M.box_at(view, vim.api.nvim_win_get_cursor(view.win)[1])
+  end
+  local title = " " .. (box and (BOX_TITLE[box] .. " ") or "git.nvim ") .. "keymaps "
+  local win = M.popup(M.help_entries(box), title, { enter = true })
+  local buf = vim.api.nvim_win_get_buf(win)
   for _, lhs in ipairs({ "q", "<Esc>", "?" }) do
     vim.keymap.set("n", lhs, function()
       pcall(vim.api.nvim_win_close, win, true)

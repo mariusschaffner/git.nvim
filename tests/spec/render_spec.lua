@@ -154,7 +154,11 @@ describe("render", function()
       end
     end
     matches("│  ○ ! h1 first ", r.lines[lnum])
-    matches("│    HEAD %-> main ", r.lines[lnum - 1])
+    -- the ref names start in the hash's column
+    local function col(line, text)
+      return vim.fn.strdisplaywidth(line:sub(1, line:find(text, 1, true) - 1))
+    end
+    eq(col(r.lines[lnum], "h1 first"), col(r.lines[lnum - 1], "HEAD -> main"))
     eq("h1", r.items[lnum - 1].hash)
     eq(true, r.items[lnum - 1].refs)
     local deco_hl
@@ -335,4 +339,31 @@ describe("render", function()
     r = render.render(s, { width = 60, height = 20, zoom = "files", commit = { hash = "h1", lines = {} } })
     ok(r.boxes.commit and r.boxes.graph)
   end)
+
+  it("starts all graph text in one column, whatever the lanes", function()
+    local s = state({
+      graph = {
+        { hash = "m", abbrev = "m", parents = { "a", "b" }, deco = "HEAD -> main", subject = "merge" },
+        { hash = "b", abbrev = "b", parents = { "a" }, deco = "feature", subject = "side" },
+        { hash = "a", abbrev = "a", parents = {}, deco = "", subject = "root" },
+      },
+      unpushed = { m = true },
+    })
+    local r = render.render(s, { width = 60 })
+    local cols = {}
+    for l, it in pairs(r.items) do
+      if it.kind == "commit" then
+        local line = r.lines[l]
+        local text = it.refs and ((it.hash == "m") and "HEAD" or "feature") or (it.hash .. " ")
+        local _, start = line:find("^│[^%w]*")
+        cols[#cols + 1] = vim.fn.strdisplaywidth(line:sub(1, start))
+        ok(line:sub(start + 1):find("^" .. text), line)
+      end
+    end
+    eq(5, #cols)
+    for _, c in ipairs(cols) do
+      eq(cols[1], c)
+    end
+  end)
 end)
+
