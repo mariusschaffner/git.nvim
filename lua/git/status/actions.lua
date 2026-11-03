@@ -380,7 +380,7 @@ function M.search_jump(view, dir, cb)
     end
     i = i + dir
   end
-  local more = dir > 0 and view.graph_limit and #commits >= view.graph_limit
+  local more = dir > 0 and #commits >= view.graph_limit
   if not more then
     util.notify(("No %s match for %q"):format(dir > 0 and "further" or "earlier", needle))
     if cb then

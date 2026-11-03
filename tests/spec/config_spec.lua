@@ -40,7 +40,7 @@ describe("config", function()
       icons = false,
       hints = false,
       keymaps = { close = "Q" },
-      status = { graph = { max_commits = 3 }, hints = true },
+      status = { graph = { page = 3 }, hints = true },
     })
     vim.notify = orig
     eq(true, res)
@@ -49,8 +49,22 @@ describe("config", function()
     -- an explicit status value wins over the legacy top-level one
     eq(true, config.options.status.hints)
     eq({ "Q" }, config.keys("close"))
-    eq(3, config.options.status.graph.max_commits)
+    eq(3, config.options.status.graph.page)
     eq(nil, config.options.hints)
+    config.setup({})
+  end)
+
+  it("replaces the old graph max_commits / zoom_page with page, with a warning", function()
+    local warned
+    local orig = vim.notify
+    vim.notify = function(msg, level)
+      warned = level == vim.log.levels.WARN and msg or warned
+    end
+    local res = config.setup({ status = { graph = { max_commits = 12, zoom_page = 50 } } })
+    vim.notify = orig
+    eq(true, res)
+    matches("status%.graph%.page", warned)
+    eq({ page = 50 }, config.options.status.graph)
     config.setup({})
   end)
 end)

@@ -100,7 +100,7 @@ end
 --- Collect everything the status view shows.
 ---@param repo GitRepo
 ---@param cb fun(state: GitState?, err: string?)
----@param opts { max_commits: integer? }? max_commits: graph length (default `status.graph.max_commits`)
+---@param opts { max_commits: integer? }? max_commits: graph length (default `status.graph.page`)
 function M.collect(repo, cb, opts)
   local max_commits = opts and opts.max_commits
   local config = require("git.config").options.status
@@ -193,7 +193,7 @@ function M.collect(repo, cb, opts)
     if not b.unborn then
       local has_upstream = b.upstream and not b.gone
       local incoming = has_upstream and b.behind > 0
-      local n = max_commits or config.graph.max_commits
+      local n = max_commits or config.graph.page
       local log = { "log", "--topo-order", "-n", tostring(n), parse_log.FORMAT, "HEAD" }
       if incoming then
         log[#log + 1] = "@{upstream}"

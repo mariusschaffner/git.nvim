@@ -25,9 +25,10 @@ current directory) in up to five panels:
   Stashes    the most recent stash entries
   Files      conflicted, staged, unstaged and untracked files with +/- line
              counts; diffs can be expanded inline
-  Graph      a lane-based graph of the most recent commits, including the
-             upstream's when it is ahead; unpushed commits are marked `!`,
-             incoming (not yet pulled) ones get a background color
+  Graph      a lane-based graph of the whole history (loaded page by page as
+             you scroll), including the upstream's when it is ahead;
+             unpushed commits are marked `!`, incoming (not yet pulled)
+             ones get a background color
 
 Files can be staged, unstaged and discarded from the view, stashes popped,
 applied and dropped, and commits and stashes opened. All git commands run
@@ -121,9 +122,7 @@ Buffer-local mappings in the status view (press `?` for this list):
   f         Fetch (`git fetch`) the branch's remote; a spinner shows in the
             Branches box meanwhile, then incoming commits show in the graph.
   z         In the Files or Graph box: show only that box, over the whole
-            window. `z` again (or `q`) shows all boxes again. A zoomed
-            graph shows the whole history: it loads `graph.zoom_page`
-            commits at a time, the next page when you scroll to its end.
+            window. `z` again (or `q`) shows all boxes again.
   / n N     In the zoomed graph: search the commits' hashes, ref names
             and subjects (case-insensitive unless the text has capitals),
             jump to the next / previous match. Matches are highlighted;
@@ -168,9 +167,9 @@ Defaults: >lua
         border = "none",   -- a |nvim_open_win()| border; "none" drops the title
       },
       protected_branches = { "main", "master" }, -- marked in the HEAD line
-      -- zoom_page: commits loaded at a time while the graph is zoomed;
-      -- scrolling to its end loads the next page
-      graph = { max_commits = 12, zoom_page = 200 },
+      -- page: commits loaded into the graph at a time; scrolling to its
+      -- end loads the next page
+      graph = { page = 200 },
       stash = { max = 5 },
       diff = { max_lines = 500 },  -- per inline diff
       untracked_files = "normal",  -- "normal" | "all" | "no"

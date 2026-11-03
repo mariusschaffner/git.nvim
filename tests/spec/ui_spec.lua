@@ -739,36 +739,32 @@ describe("ui", function()
     eq(nil, view.zoom)
   end)
 
-  it("loads the history page by page while the graph is zoomed", function()
-    require("git.config").setup({ status = { auto_refresh = false, graph = { max_commits = 5, zoom_page = 30 } } })
-    vim.o.lines = 24 -- a page is taller than the zoomed graph
+  it("loads the history page by page as the graph scrolls, zoomed or not", function()
+    require("git.config").setup({ status = { auto_refresh = false, graph = { page = 30 } } })
+    vim.o.lines = 24 -- a page is taller than the graph box
     for i = 1, 69 do
       H.git(dir, { "commit", "--quiet", "--allow-empty", "-m", "c" .. i })
     end
     local view = open(dir, "float")
-    eq(5, #view.state.graph)
-    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
-      return it.kind == "commit" and not it.refs
-    end)), 0 })
     local function settled(n)
       return vim.wait(10000, function()
         return #view.state.graph == n and not view.loading_more
       end, 10)
     end
-    vim.api.nvim_feedkeys("z", "x", false)
     ok(settled(30), "first page")
+    ok(view.rendered.boxes.graph.total > view.rendered.boxes.graph.rows, "the box scrolls")
     -- scrolling to the end loads the next pages, until the history ends (70 commits)
     view:scroll_box("graph", 1000)
     ok(settled(60), "second page")
+    -- zooming keeps what is loaded and pages on from there
+    view:set_zoom("graph")
+    eq(60, #view.state.graph)
     view:scroll_box("graph", 1000)
     ok(settled(70), "rest")
     view:scroll_box("graph", 1000)
     vim.wait(200)
     eq(70, #view.state.graph)
     eq("init", view.state.graph[70].subject)
-    -- unzoomed: back to the short graph
-    vim.api.nvim_feedkeys("z", "x", false)
-    ok(settled(5), "short graph again")
   end)
 
   it("keeps which-key triggers out of the view so single-key maps fire at once", function()
@@ -827,7 +823,7 @@ describe("ui", function()
   end)
 
   it("searches the zoomed graph with / n N, loading older history for matches", function()
-    require("git.config").setup({ status = { auto_refresh = false, graph = { max_commits = 5, zoom_page = 10 } } })
+    require("git.config").setup({ status = { auto_refresh = false, graph = { page = 10 } } })
     vim.o.lines = 24
     for i = 1, 40 do
       local subject = (i == 3 or i == 30) and ("needle " .. i) or ("c" .. i)

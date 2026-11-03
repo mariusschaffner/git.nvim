@@ -29,7 +29,7 @@ M.ns = ns
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
 ---@field zoom ("files"|"graph")? Box shown alone over the full height
----@field graph_limit integer? Commits to load into the graph (set while it is zoomed; grows when scrolling down)
+---@field graph_limit integer Commits to load into the graph (a page; grows when scrolling down)
 ---@field loading_more boolean
 ---@field search string? Text searched for in the zoomed graph
 ---@field editor GitEditor? Commit message editor, overlaid on the "compose" box
@@ -135,6 +135,7 @@ function View.new(repo, kind)
     generation = 0,
     closed = false,
     fetching_tags = false,
+    graph_limit = config.options.status.graph.page,
   }, View)
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -376,31 +377,26 @@ function View:redraw(opts)
   self:_maybe_load_more()
 end
 
---- Show only the Files or Graph box (nil: all boxes). A zoomed graph loads the history page by page.
+--- Show only the Files or Graph box (nil: all boxes).
 ---@param box ("files"|"graph")?
 function View:set_zoom(box)
   if self.zoom == box then
     return
   end
-  local had_more = self.graph_limit ~= nil
   self.zoom = box
   self.search = nil
-  self.graph_limit = box == "graph" and config.options.status.graph.zoom_page or nil
   self:redraw()
-  if self.graph_limit or had_more then
-    self:refresh()
-  end
 end
 
---- In the zoomed graph, load the next page of history once its end is in view.
+--- Load the next page of history once the end of the graph box is in view.
 function View:_maybe_load_more()
   local b = self.rendered and self.rendered.boxes.graph
-  if self.zoom ~= "graph" or not self.graph_limit or self.loading_more or not b or not self.state then
+  if self.loading_more or not b or not self.state then
     return
   end
   if #self.state.graph >= self.graph_limit and b.offset + b.rows >= b.total then
     self.loading_more = true
-    self.graph_limit = self.graph_limit + config.options.status.graph.zoom_page
+    self.graph_limit = self.graph_limit + config.options.status.graph.page
     vim.schedule(function()
       self:refresh()
     end)

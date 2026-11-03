@@ -5,7 +5,7 @@ local M = {}
 ---@class GitStatusConfig
 ---@field window { kind: GitWindowKind, width: number, height: number, border: string|string[] }
 ---@field protected_branches string[]
----@field graph { max_commits: integer, zoom_page: integer }
+---@field graph { page: integer }
 ---@field stash { max: integer }
 ---@field diff { max_lines: integer }
 ---@field untracked_files "normal"|"all"|"no"
@@ -34,8 +34,8 @@ M.defaults = {
       border = "none",
     },
     protected_branches = { "main", "master" },
-    -- zoom_page: commits loaded at a time while the graph is zoomed (more load when scrolling to the end)
-    graph = { max_commits = 12, zoom_page = 200 },
+    -- page: commits loaded into the graph at a time (the next page loads when scrolling to its end)
+    graph = { page = 200 },
     stash = { max = 5 },
     diff = { max_lines = 500 },
     untracked_files = "normal",
@@ -122,8 +122,7 @@ local function validate(o)
   check("status.window.kind", s.window.kind, kinds, '"float", "split", "vsplit" or "tab"')
   check("status.window.width", s.window.width, "number")
   check("status.window.height", s.window.height, "number")
-  check("status.graph.max_commits", s.graph.max_commits, "number")
-  check("status.graph.zoom_page", s.graph.zoom_page, "number")
+  check("status.graph.page", s.graph.page, "number")
   check("status.stash.max", s.stash.max, "number")
   check("status.diff.max_lines", s.diff.max_lines, "number")
   check("status.tags.check_remote", s.tags.check_remote, "boolean")
@@ -138,6 +137,29 @@ local function validate(o)
       error(("status.keymaps.%s must be a string, a list of strings or false"):format(action), 0)
     end
   end
+end
+
+--- The graph used to show `max_commits` and load `zoom_page` commits at a time only when zoomed; now it always
+--- loads `page` commits at a time. `zoom_page` becomes `page`, `max_commits` is dropped, with a warning.
+---@param opts table
+---@return table
+local function migrate_graph(opts)
+  local g = type(opts.status) == "table" and opts.status.graph
+  if type(g) ~= "table" or (g.max_commits == nil and g.zoom_page == nil) then
+    return opts
+  end
+  opts = vim.deepcopy(opts)
+  g = opts.status.graph
+  if g.page == nil then
+    g.page = g.zoom_page
+  end
+  g.max_commits, g.zoom_page = nil, nil
+  vim.notify(
+    "git.nvim: status.graph.max_commits and zoom_page are replaced by status.graph.page; please update your setup()",
+    vim.log.levels.WARN,
+    { title = "git.nvim" }
+  )
+  return opts
 end
 
 --- Move dashboard options given at the top level (the pre-`status` layout) into `status`, with a warning.
@@ -174,7 +196,7 @@ end
 
 ---@param opts table?
 function M.setup(opts)
-  opts = migrate(opts or {})
+  opts = migrate_graph(migrate(opts or {}))
   local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
   -- Lists should be replaced, not merged index-by-index.
   local status = type(opts.status) == "table" and opts.status or {}
