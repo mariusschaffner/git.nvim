@@ -27,7 +27,7 @@ local GLYPH = {
 M.COMMIT = "○"
 M.MERGE = "●"
 
--- Number of lane colors (GitStatusGraphLane1.., GitStatusGraphRef1..), used in turn.
+-- Number of lane colors (GitStatusGraphLane1..), used in turn.
 M.COLORS = 6
 
 ---@param color integer

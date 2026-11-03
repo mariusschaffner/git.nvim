@@ -171,7 +171,7 @@ describe("render", function()
     eq(true, r.items[lnum - 1].refs)
     local deco_hl
     for _, m in ipairs(r.marks) do
-      if m.row == lnum - 2 and m.hl == "GitStatusGraphRef1" then
+      if m.row == lnum - 2 and m.hl == "GitStatusGraphLane1" then
         deco_hl = m
       end
     end

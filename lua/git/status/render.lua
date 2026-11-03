@@ -589,14 +589,14 @@ local function commit_graph(state, search)
       end
       local item = { kind = "commit", hash = c.hash }
       if c.deco ~= "" then
-        -- Ref names on their own line above the commit, in the text column, on the color of its lane.
+        -- Ref names on their own line above the commit, in the text column, in the color of its lane.
         local deco = prefix(graph.above(r))
         add(deco, { " " })
         for i, ref in ipairs(vim.split(c.deco, ", ", { plain = true })) do
           if i > 1 then
             add(deco, { ", ", "GitStatusDeco" })
           end
-          vim.list_extend(deco, with_matches(ref, "GitStatusGraphRef" .. r.color, search))
+          vim.list_extend(deco, with_matches(ref, graph.lane_hl(r.color), search))
         end
         out[#out + 1] = { segs = deco, item = vim.tbl_extend("force", item, { refs = true }), line_hl = line_hl }
       end

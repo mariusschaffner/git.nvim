@@ -69,19 +69,7 @@ M.colors = {
 }
 
 -- Graph branch colors (as many as graph.COLORS), { dark background, light background } as { gui, cterm }.
--- GitStatusGraphLane<n> draws a branch's lines and commits, GitStatusGraphRef<n> its ref names on that color.
--- No green: it marks unpushed commits.
---- `alpha` of `fg` over `bg`, both "#rrggbb".
----@return string
-local function blend(fg, bg, alpha)
-  local out = "#"
-  for i = 2, 6, 2 do
-    local a, b = tonumber(fg:sub(i, i + 1), 16), tonumber(bg:sub(i, i + 1), 16)
-    out = out .. ("%02x"):format(math.floor(a * alpha + b * (1 - alpha) + 0.5))
-  end
-  return out
-end
-
+-- GitStatusGraphLane<n> draws a branch's lines, commits and ref names. No green: it marks unpushed commits.
 -- stylua: ignore
 local LANES = {
   { { "#5fafd7", 74 },  { "#005f87", 24 } },  -- blue
@@ -92,23 +80,9 @@ local LANES = {
   { { "#d7875f", 173 }, { "#af5f00", 130 } }, -- salmon
 }
 for n, pair in ipairs(LANES) do
-  local function color()
-    return pair[vim.o.background == "light" and 2 or 1]
-  end
   M.colors["GitStatusGraphLane" .. n] = function()
-    local c = color()
+    local c = pair[vim.o.background == "light" and 2 or 1]
     return { fg = c[1], ctermfg = c[2] }
-  end
-  M.colors["GitStatusGraphRef" .. n] = function()
-    local c = color()
-    local light = vim.o.background == "light"
-    -- The lane color as text on a faint tint of it, mixed into the window background like a
-    -- translucent layer. 256-color terminals cannot mix, so they get a plain grey.
-    local float = require("git.config").options.status.window.kind == "float"
-    local bg = float and vim.api.nvim_get_hl(0, { name = "NormalFloat", link = false }).bg
-    bg = bg or vim.api.nvim_get_hl(0, { name = "Normal", link = false }).bg
-    local base = bg and ("#%06x"):format(bg) or (light and "#ffffff" or "#1c1c1c")
-    return { fg = c[1], ctermfg = c[2], bg = blend(c[1], base, 0.25), ctermbg = light and 254 or 236 }
   end
 end
 

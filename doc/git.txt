@@ -37,7 +37,7 @@ Unpushed commits on top of the upstream branch, and incoming commits on top
 of your HEAD, are drawn on a side lane to the right that joins the commit
 below them (`├─╯`). Once pushed / pulled, the graph is a straight line again.
 Each branch's lines and commits are drawn in a color of its own, and the
-ref names above a commit are set on its branch's color.
+ref names above a commit are in its branch's color.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
 split the height left after Branches, Tags and Stashes evenly (with a clean
@@ -250,8 +250,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusAdded            +N                     green (*)
   GitStatusDeleted          -N                     -> Removed
   GitStatusGraph            graph gaps             -> Comment
-  GitStatusGraphLane{1-6}   branch lines, nodes    branch colors (**)
-  GitStatusGraphRef{1-6}    ref names              branch colors on a tint (**)
+  GitStatusGraphLane{1-6}   lines, nodes, refs     branch colors (**)
   GitStatusGraphUnpushed    unpushed node and !    green (*)
   GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
   GitStatusHash             pushed commit hash     -> Identifier
@@ -272,8 +271,7 @@ GitStatusSectionStaged, GitStatusStaged and GitStatusDiffAdd.
 (**) Branches take the colors in turn: blue, pink, gold, teal, purple,
 salmon (darker shades on a light background); a side lane of unpushed or
 incoming commits takes the last one. Its nodes keep the unpushed / incoming
-color. Ref names are drawn in the branch color on a background of 25% of
-it mixed into the window background (NormalFloat for a float, else Normal).
+color.
 
 ==============================================================================
 8. LUA API                                                       *git-api*
