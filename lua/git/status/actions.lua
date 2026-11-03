@@ -10,7 +10,7 @@ local M = {}
 local function files_of(view, items)
   local out, seen = {}, {}
   local function push(f)
-    local key = f.section .. "\0" .. f.path
+    local key = (f.stash or "") .. "\0" .. f.section .. "\0" .. f.path
     if not seen[key] then
       seen[key] = true
       out[#out + 1] = f
@@ -19,6 +19,10 @@ local function files_of(view, items)
   for _, it in ipairs(items) do
     if (it.kind == "file" or it.kind == "diff") and it.file then
       push(it.file)
+    elseif it.kind == "section" and it.stash then
+      for _, f in ipairs(view.stash and view.stash.files[it.section] or {}) do
+        push(f)
+      end
     elseif it.kind == "section" and view.state then
       for _, f in ipairs(view.state.files[it.section] or {}) do
         push(f)
@@ -28,10 +32,13 @@ local function files_of(view, items)
   return out
 end
 
+--- Work tree files by section; a stash's files are left out (they can only be looked at).
 local function by_section(files)
   local groups = { conflicted = {}, staged = {}, unstaged = {}, untracked = {} }
   for _, f in ipairs(files) do
-    table.insert(groups[f.section], f)
+    if not f.stash then
+      table.insert(groups[f.section], f)
+    end
   end
   return groups
 end
@@ -199,7 +206,7 @@ function M.open(view, item)
     view:toggle_commit(item.hash)
     return
   elseif item.kind == "stash" then
-    M.show(view, { "stash", "show", "--stat", "--patch", item.stash.ref }, "git://stash/" .. item.stash.ref)
+    view:toggle_stash(item.stash)
     return
   elseif item.kind == "section" then
     return
@@ -239,48 +246,20 @@ function M.open_items(view, items)
   end
 end
 
---- Show git output in a read-only scratch buffer.
----@param view GitView
----@param args string[]
----@param name string
-function M.show(view, args, name)
-  runner.run(args, { cwd = view.repo.root }, function(res)
-    if res.code ~= 0 then
-      util.notify(runner.error_message(res), vim.log.levels.ERROR)
-      return
-    end
-    local lines = vim.split((res.stdout:gsub("\r\n", "\n")), "\n", { plain = true })
-    if lines[#lines] == "" then
-      lines[#lines] = nil
-    end
-    for i, l in ipairs(lines) do
-      lines[i] = l:gsub("[\r\n]", "")
-    end
-    vim.cmd(goto_target(view) == "vsplit" and "vnew" or "enew")
-    local buf = vim.api.nvim_get_current_buf()
-    vim.bo[buf].buftype = "nofile"
-    vim.bo[buf].bufhidden = "wipe"
-    vim.bo[buf].swapfile = false
-    pcall(vim.api.nvim_buf_set_name, buf, name)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    vim.bo[buf].filetype = "git"
-    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, nowait = true, silent = true })
-  end)
-end
-
+--- Pop / apply / drop the stash under the cursor, or the one shown in the stash view.
 ---@param view GitView
 ---@param op "pop"|"apply"|"drop"
 function M.stash(view, op)
   local item = view:item()
-  if not item or item.kind ~= "stash" then
+  local stash = item and item.kind == "stash" and item.stash or (view.stash and view.stash.stash)
+  if not stash then
     util.notify("Move the cursor to a stash entry first")
     return
   end
-  local ref = item.stash.ref
+  local ref = stash.ref
   if
     op == "drop"
-    and vim.fn.confirm(("Drop %s?\n  %s"):format(ref, item.stash.subject), "&Drop\n&Cancel", 2, "Warning") ~= 1
+    and vim.fn.confirm(("Drop %s?\n  %s"):format(ref, stash.subject), "&Drop\n&Cancel", 2, "Warning") ~= 1
   then
     return
   end
@@ -290,6 +269,52 @@ function M.stash(view, op)
     end
     view:refresh()
   end)
+end
+
+--- Stash the selected files (on a section header: its files), or all local changes when the cursor is on no
+--- file; untracked files included. Asks for a message first (empty: git's "WIP on <branch>").
+---@param view GitView
+---@param items GitItem[]
+---@param message string? The message (asks for it when nil)
+function M.stash_push(view, items, message)
+  local g = by_section(files_of(view, items))
+  local fs = view.state and view.state.files
+  local selected = vim.list_extend(vim.list_extend(vim.list_extend({}, g.staged), g.unstaged), g.untracked)
+  if not fs or #fs.staged + #fs.unstaged + #fs.untracked + #fs.conflicted == 0 then
+    util.notify("No local changes to stash")
+    return
+  end
+  if #selected == 0 and #g.conflicted > 0 then
+    util.notify("Conflicted files cannot be stashed; resolve them first", vim.log.levels.WARN)
+    return
+  end
+  local function go(msg)
+    if msg == nil then
+      return
+    end
+    local args = { "stash", "push", "--include-untracked", "--quiet" }
+    if msg ~= "" then
+      vim.list_extend(args, { "--message", msg })
+    end
+    if #selected > 0 then
+      table.insert(args, "--")
+      vim.list_extend(args, paths(selected, true))
+    end
+    -- Only with paths: under --literal-pathspecs, stashing everything leaves the untracked files behind.
+    runner.mutate(args, { cwd = view.repo.root, literal = #selected > 0 }, function(res)
+      if res.code ~= 0 then
+        util.notify(runner.error_message(res), vim.log.levels.ERROR)
+      end
+      view:refresh()
+    end)
+  end
+  if message then
+    return go(message)
+  end
+  local n = #selected
+  local prompt = n == 0 and "Stash all changes, message: "
+    or ("Stash %d file%s, message: "):format(n, n == 1 and "" or "s")
+  vim.ui.input({ prompt = prompt }, go)
 end
 
 --- The commit menu: a popup lists the follow-up keys (commit / amend) and the next key picks one.
@@ -638,6 +663,7 @@ M.descriptions = {
   stash_pop = "Pop stash",
   stash_apply = "Apply stash",
   stash_drop = "Drop stash",
+  stash_push = "Stash changes",
   commit = "Commit / amend",
   revert = "Revert commit",
   reword = "Reword unpushed commit",
@@ -660,6 +686,7 @@ M.order = {
   "toggle_diff",
   "commit",
   "open",
+  "stash_push",
   "stash_pop",
   "stash_apply",
   "stash_drop",
@@ -679,8 +706,9 @@ M.order = {
 M.contexts = {
   branches = { "fetch" },
   tags = {},
-  stashes = { "stash_pop", "stash_apply", "stash_drop", "open" },
-  files = { "stage", "unstage", "discard", "toggle_diff", "commit", "open", "zoom" },
+  stashes = { "stash_push", "stash_pop", "stash_apply", "stash_drop", "open" },
+  files = { "stage", "unstage", "discard", "toggle_diff", "stash_push", "commit", "open", "zoom" },
+  stash = { "toggle_diff", "open", "stash_pop", "stash_apply", "stash_drop", "close" },
   graph = { "open", "revert", "reword", "zoom", "search", "search_next", "search_prev" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
@@ -688,8 +716,9 @@ M.contexts = {
 
 -- Descriptions that read better than `M.descriptions` in a given box.
 M.context_descriptions = {
-  stashes = { open = "Show stash" },
-  files = { open = "Open file" },
+  stashes = { open = "Show stash", stash_push = "Stash all changes" },
+  files = { open = "Open file", stash_push = "Stash file(s) (elsewhere: all)" },
+  stash = { open = "Open file", close = "Back" },
   graph = { open = "Toggle details (visual: combined)" },
   compose = { commit_submit = "Commit (or :w)" },
 }
@@ -698,6 +727,7 @@ local BOX_TITLE = {
   branches = "Branches",
   tags = "Tags",
   stashes = "Stashes",
+  stash = "Stash",
   files = "Files",
   graph = "Graph",
   commit = "Commit",
@@ -874,6 +904,12 @@ function M.attach(view)
         M.stash(view, "drop")
       end,
     },
+    stash_push = {
+      { "n", "x" },
+      function()
+        M.stash_push(view, target_items(view))
+      end,
+    },
     commit = {
       "n",
       function()
@@ -927,6 +963,8 @@ function M.attach(view)
       function()
         if view.editor then
           view:stop_commit()
+        elseif view.stash then
+          view:hide_stash()
         elseif view.commit then
           view:hide_commit()
         elseif view.search then

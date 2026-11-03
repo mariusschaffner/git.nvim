@@ -13,6 +13,7 @@ local M = {}
 ---@field added integer?
 ---@field deleted integer?
 ---@field binary boolean?
+---@field stash string? Files of a stash: the stash commit (section "changes" or "untracked")
 
 ---@class GitBranchStatus
 ---@field oid string?
@@ -99,6 +100,36 @@ function M.parse(out)
 
   branch.gone = branch.upstream ~= nil and not has_ab
   return { branch = branch, files = files }
+end
+
+--- Parse `git diff --name-status -z` output (also `diff-tree`) into files of `section`.
+--- Entries are `X\0path\0`; renames and copies are `R<score>\0old\0new\0`.
+---@param out string
+---@param section string
+---@return GitFile[]
+function M.parse_name_status(out, section)
+  local list = {}
+  local fields = util.split(out, "\0")
+  local i = 1
+  while i <= #fields do
+    local status = fields[i]
+    i = i + 1
+    local code = status:sub(1, 1)
+    if code:match("%u") then
+      local file = { code = code, section = section, submodule = false }
+      if code == "R" or code == "C" then
+        file.orig, file.path = fields[i], fields[i + 1]
+        i = i + 2
+      else
+        file.path = fields[i]
+        i = i + 1
+      end
+      if file.path and file.path ~= "" then
+        list[#list + 1] = file
+      end
+    end
+  end
+  return list
 end
 
 return M

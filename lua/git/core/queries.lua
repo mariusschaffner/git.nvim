@@ -1,5 +1,6 @@
 --- Read-only git queries shared by features (not tied to a view).
 local runner = require("git.core.runner")
+local util = require("git.core.util")
 
 local M = {}
 
@@ -14,12 +15,22 @@ local function output_lines(stdout)
 end
 
 --- Diff of one file as shown in its status section (staged: index vs HEAD, untracked: against /dev/null).
+--- A stash's file: its change against the commit the stash was made on (untracked: the whole file).
 ---@param repo GitRepo
 ---@param file GitFile
 ---@param cb fun(lines: string[]?, err: string?)
 function M.file_diff(repo, file, cb)
   local args
-  if file.section == "staged" then
+  if file.stash and file.section == "untracked" then
+    -- The untracked files commit has no parent, so `show` diffs it against the empty tree.
+    args = { "show", "--no-ext-diff", "--format=", file.stash .. "^3", "--", file.path }
+  elseif file.stash then
+    args = { "diff", "--no-ext-diff", file.stash .. "^1", file.stash, "--" }
+    if file.orig then
+      table.insert(args, file.orig)
+    end
+    table.insert(args, file.path)
+  elseif file.section == "staged" then
     args = { "diff", "--cached", "--no-ext-diff", "--" }
     if file.orig then
       table.insert(args, file.orig)
@@ -30,13 +41,74 @@ function M.file_diff(repo, file, cb)
   else
     args = { "diff", "--no-ext-diff", "--", file.path }
   end
-  runner.run(args, { cwd = repo.root, literal = file.section ~= "untracked" }, function(res)
+  local no_index = file.section == "untracked" and not file.stash
+  runner.run(args, { cwd = repo.root, literal = not no_index }, function(res)
     -- `diff --no-index` exits 1 when files differ.
-    if res.code ~= 0 and not (file.section == "untracked" and res.code == 1) then
+    if res.code ~= 0 and not (no_index and res.code == 1) then
       cb(nil, runner.error_message(res))
       return
     end
     cb(output_lines(res.stdout))
+  end)
+end
+
+--- Files of a stash with +/- counts: `changes` (tracked files, against the commit the stash was made on) and
+--- `untracked` (stashed with --include-untracked).
+---@param repo GitRepo
+---@param hash string The stash commit
+---@param cb fun(files: { changes: GitFile[], untracked: GitFile[] }?, err: string?)
+function M.stash_files(repo, hash, cb)
+  local parse_status = require("git.parse.status")
+  local parse_numstat = require("git.parse.numstat").parse
+  local out = { changes = {}, untracked = {} }
+  local err
+  --- `cmd` with --name-status and with --numstat over `revs`, merged into out[section].
+  local function list(section, cmd, revs)
+    return function(done)
+      local res = {}
+      local function run(format)
+        return function(d)
+          local args = vim.list_extend(vim.list_extend({}, cmd), { format, "-z" })
+          vim.list_extend(args, revs)
+          table.insert(args, "--")
+          runner.run(args, { cwd = repo.root }, function(r)
+            res[format] = r
+            d()
+          end)
+        end
+      end
+      util.all({ run("--name-status"), run("--numstat") }, function()
+        for _, r in pairs(res) do
+          if r.code ~= 0 then
+            err = err or runner.error_message(r)
+            return done()
+          end
+        end
+        local stats = parse_numstat(res["--numstat"].stdout)
+        for _, f in ipairs(parse_status.parse_name_status(res["--name-status"].stdout, section)) do
+          local s = stats[f.path]
+          if s then
+            f.added, f.deleted, f.binary = s.added, s.deleted, s.binary
+          end
+          f.stash = hash
+          table.insert(out[section], f)
+        end
+        done()
+      end)
+    end
+  end
+  runner.run({ "rev-parse", "--verify", "--quiet", hash .. "^3" }, { cwd = repo.root }, function(res)
+    local tasks = { list("changes", { "diff", "-M", "--no-ext-diff" }, { hash .. "^1", hash }) }
+    if res.code == 0 then
+      -- The untracked files commit has no parent: --root lists all its files as added.
+      tasks[2] = list("untracked", { "diff-tree", "-r", "--root", "--no-commit-id" }, { hash .. "^3" })
+    end
+    util.all(tasks, function()
+      if err then
+        return cb(nil, err)
+      end
+      cb(out)
+    end)
   end)
 end
 

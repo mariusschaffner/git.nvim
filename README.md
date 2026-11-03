@@ -11,7 +11,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │  Nearest tag: v1.0-2-gbc8d9a4                                              │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Stashes ─────────────────────────────────────────────────────────────────╮
-│  Stashes: [1] | P pop · A apply · D drop · <CR> show                       │
+│  Stashes: [1] | S stash · P pop · A apply · D drop · <CR> show             │
 │    stash@{0} On main: experiment                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Files ───────────────────────────────────────────────────────────────────╮
@@ -19,7 +19,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │   M keep.txt (+2 | -1)                                                     │
 │   R old.txt → new.txt (+0 | -0)                                            │
 │                                                                            │
-│  Unstaged changes (1) | s stage · X discard · <Tab> diff                   │
+│  Unstaged changes (1) | s stage · X discard · <Tab> diff · S stash         │
 │   M x.txt (+1 | -0)                                                        │
 │                                                                            │
 │  Untracked (1) | s stage · X delete · <Tab> diff                           │
@@ -86,7 +86,8 @@ require("git").setup({
 | `s` / `u` | stage / unstage the file, a whole section (on its header), or a visual selection |
 | `X` | discard unstaged changes / delete untracked files (asks first) |
 | `<Tab>` | toggle inline diff |
-| `<CR>` | open file (on a diff line: at that line) or stash; on a commit: toggle its details box (the cursor moves into it; `k` at its top goes to the top of the graph); on commits selected in Visual mode: their details combined |
+| `<CR>` | open file (on a diff line: at that line); on a stash: list its files like the Files box, `<Tab>` toggles their diffs, `q` goes back; on a commit: toggle its details box (the cursor moves into it; `k` at its top goes to the top of the graph); on commits selected in Visual mode: their details combined |
+| `S` | stash the file(s) under the cursor / selected, anywhere else all changes (untracked included); asks for a message |
 | `P` / `A` / `D` | pop / apply / drop stash |
 | `c c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft). `c` alone shows a popup with the choices |
 | `c a` | amend the last commit with the staged changes, editing its message |

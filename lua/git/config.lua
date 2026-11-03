@@ -58,6 +58,7 @@ M.defaults = {
       stash_pop = "P",
       stash_apply = "A",
       stash_drop = "D",
+      stash_push = "S",
       commit = "c", -- opens the commit menu; the next key picks:
       commit_create = "c", -- commit the staged changes
       commit_amend = "a", -- amend the last commit with the staged changes

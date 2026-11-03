@@ -7,9 +7,9 @@ local M = {}
 
 ---@class GitItem
 ---@field kind "section"|"file"|"diff"|"stash"|"commit"
----@field section GitSection?
+---@field section GitSection|"changes"?
 ---@field file GitFile?
----@field stash GitStash?
+---@field stash (GitStash|string)? Stash items: the stash; section items of the stash box: the stash commit
 ---@field hash string?
 ---@field diff_line integer? Index into the expanded diff lines (diff items only)
 ---@field refs boolean? Commit items: the ref names line above the commit (the cursor prefers the commit line)
@@ -18,7 +18,7 @@ local M = {}
 ---@field lines string[]
 ---@field marks { row: integer, col: integer, end_col: integer, hl: string, priority: integer? }[] 0-based row, byte columns
 ---@field items table<integer, GitItem> 1-based line -> item
----@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit"); only with a fixed height,
+---@field boxes table<string, GitBox> Scrollable boxes by name ("files", "graph", "commit", "stash"); only with a fixed height,
 --- except "compose", which is always present while composing
 ---@field scroll table<string, integer> Final scroll offsets of the scrollable boxes
 ---@field regions { name: string, first: integer, last: integer }[] 1-based line range of every box, borders included
@@ -34,6 +34,10 @@ local M = {}
 ---@field hashes string[]? All commits shown combined, newest first
 ---@field lines string[]
 
+---@class GitStashView
+---@field stash GitStash
+---@field files { changes: GitFile[], untracked: GitFile[] }
+
 ---@class GitRenderOpts
 ---@field width integer
 ---@field expanded table<string, string[]>? diff key -> diff lines
@@ -45,6 +49,7 @@ local M = {}
 ---@field zoom ("files"|"graph")? Show only this box, over the full height (ignored while a commit or the
 --- commit message editor is shown)
 ---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
+---@field stash GitStashView? A stash to show alone, its files listed like the Files box (ignored while composing)
 ---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
 --- box; the UI overlays an editor
 
@@ -78,11 +83,11 @@ function M.item_key(item)
     return nil
   end
   if item.kind == "file" then
-    return "file:" .. item.file.section .. ":" .. item.file.path
+    return "file:" .. M.diff_key(item.file)
   elseif item.kind == "diff" then
-    return "diff:" .. item.file.section .. ":" .. item.file.path .. ":" .. item.diff_line
+    return "diff:" .. M.diff_key(item.file) .. ":" .. item.diff_line
   elseif item.kind == "section" then
-    return "section:" .. item.section
+    return "section:" .. (item.stash and (item.stash .. ":") or "") .. item.section
   elseif item.kind == "stash" then
     return "stash:" .. item.stash.ref
   elseif item.kind == "commit" then
@@ -93,7 +98,7 @@ end
 ---@param file GitFile
 ---@return string
 function M.diff_key(file)
-  return file.section .. ":" .. file.path
+  return (file.stash and (file.stash .. ":") or "") .. file.section .. ":" .. file.path
 end
 
 --- "k1 label1 · k2 label2" from the configured keymaps, keys highlighted apart from the labels,
@@ -362,7 +367,13 @@ local function stashes(state)
     segs = add_hint({
       { " " .. ic.stash .. "Stashes: ", "GitStatusLabel" },
       { "[" .. #state.stashes .. "]", "GitStatusStash" },
-    }, hint({ { "stash_pop", "pop" }, { "stash_apply", "apply" }, { "stash_drop", "drop" }, { "open", "show" } })),
+    }, hint({
+      { "stash_push", "stash" },
+      { "stash_pop", "pop" },
+      { "stash_apply", "apply" },
+      { "stash_drop", "drop" },
+      { "open", "show" },
+    })),
   }
   for i, s in ipairs(state.stashes) do
     if i > config.stash.max then
@@ -405,10 +416,82 @@ local function diff_line_hl(line)
   return "GitStatusDiffContext"
 end
 
+local ITEM_HL = {
+  conflicted = "GitStatusConflicted",
+  staged = "GitStatusStaged",
+  unstaged = "GitStatusUnstaged",
+  untracked = "GitStatusUntracked",
+}
+local HEADER_HL = {
+  conflicted = "GitStatusSectionConflicted",
+  staged = "GitStatusSectionStaged",
+  unstaged = "GitStatusSectionUnstaged",
+  untracked = "GitStatusSectionUntracked",
+}
+
+--- Append a section of files (header, files, expanded diffs) to `out`; nothing for an empty list.
+---@param out table[]
+---@param section string
+---@param list GitFile[]
+---@param spec { label: string, icon: string, header_hl: string, hl: string, hint: GitSeg[]?, stash: string? }
+---@param opts GitRenderOpts
+local function file_section(out, section, list, spec, opts)
+  local config = require("git.config").options
+  local ic = require("git.config").icons()
+  if #list == 0 then
+    return
+  end
+  if #out > 0 then
+    out[#out + 1] = { segs = {} }
+  end
+  out[#out + 1] = {
+    segs = add_hint({ { " " .. spec.icon .. spec.label .. " (" .. #list .. ")", spec.header_hl } }, spec.hint),
+    item = { kind = "section", section = section, stash = spec.stash },
+  }
+  local hl = spec.hl
+  for _, f in ipairs(list) do
+    local segs
+    if section == "conflicted" then
+      segs = { { "   " .. f.code .. " ", hl }, { f.path, "GitStatusFile" } }
+    elseif section == "untracked" then
+      segs = { { "  " .. ic.bullet .. ic.new_file, hl }, { f.path, "GitStatusFile" }, { " (new)", hl } }
+    else
+      local icon = ic.status[f.code] or (f.code .. (config.icons and "  " or " "))
+      segs = {
+        { "  " .. ic.bullet .. icon, hl },
+        { f.orig and (f.orig .. " → " .. f.path) or f.path, "GitStatusFile" },
+      }
+      vim.list_extend(segs, diffstat(f, hl))
+    end
+    if f.submodule then
+      add(segs, { " (submodule)", DIM })
+    end
+    local item = { kind = "file", section = section, file = f }
+    out[#out + 1] = { segs = segs, item = item }
+
+    local diff = opts.expanded and opts.expanded[M.diff_key(f)]
+    if diff then
+      local max = config.status.diff.max_lines
+      local function ditem(i)
+        return { kind = "diff", section = section, file = f, diff_line = i }
+      end
+      for i, dl in ipairs(diff) do
+        if i > max then
+          out[#out + 1] = { segs = { { ("      … %d more lines"):format(#diff - max), DIM } }, item = ditem(i) }
+          break
+        end
+        out[#out + 1] = { segs = { { "      " }, { dl, diff_line_hl(dl) } }, item = ditem(i) }
+      end
+      if #diff == 0 then
+        out[#out + 1] = { segs = { { "      (no diff)", DIM } }, item = ditem(0) }
+      end
+    end
+  end
+end
+
 ---@param state GitState
 ---@param opts GitRenderOpts
 local function files(state, opts)
-  local config = require("git.config").options
   local ic = require("git.config").icons()
   local out = {}
   local fs = state.files
@@ -421,75 +504,61 @@ local function files(state, opts)
   local section_hints = {
     conflicted = hint({ { "stage", "mark resolved" }, { "toggle_diff", "diff" } }, "(git mergetool)"),
     staged = hint({ { "unstage", "unstage" }, { "toggle_diff", "diff" }, { "commit", "commit" } }),
-    unstaged = hint({ { "stage", "stage" }, { "discard", "discard" }, { "toggle_diff", "diff" } }),
+    unstaged = hint({
+      { "stage", "stage" },
+      { "discard", "discard" },
+      { "toggle_diff", "diff" },
+      { "stash_push", "stash" },
+    }),
     untracked = hint({ { "stage", "stage" }, { "discard", "delete" }, { "toggle_diff", "diff" } }),
   }
-  local item_hl = {
-    conflicted = "GitStatusConflicted",
-    staged = "GitStatusStaged",
-    unstaged = "GitStatusUnstaged",
-    untracked = "GitStatusUntracked",
-  }
-  local header_hl = {
-    conflicted = "GitStatusSectionConflicted",
-    staged = "GitStatusSectionStaged",
-    unstaged = "GitStatusSectionUnstaged",
-    untracked = "GitStatusSectionUntracked",
-  }
-
   for _, section in ipairs({ "conflicted", "staged", "unstaged", "untracked" }) do
-    local list = fs[section]
-    if #list > 0 then
-      if #out > 0 then
-        out[#out + 1] = { segs = {} }
-      end
-      out[#out + 1] = {
-        segs = add_hint(
-          { { " " .. ic[section] .. SECTION_LABEL[section] .. " (" .. #list .. ")", header_hl[section] } },
-          section_hints[section]
-        ),
-        item = { kind = "section", section = section },
-      }
-      local hl = item_hl[section]
-      for _, f in ipairs(list) do
-        local segs
-        if section == "conflicted" then
-          segs = { { "   " .. f.code .. " ", hl }, { f.path, "GitStatusFile" } }
-        elseif section == "untracked" then
-          segs = { { "  " .. ic.bullet .. ic.new_file, hl }, { f.path, "GitStatusFile" }, { " (new)", hl } }
-        else
-          local icon = ic.status[f.code] or (f.code .. (config.icons and "  " or " "))
-          segs = {
-            { "  " .. ic.bullet .. icon, hl },
-            { f.orig and (f.orig .. " → " .. f.path) or f.path, "GitStatusFile" },
-          }
-          vim.list_extend(segs, diffstat(f, hl))
-        end
-        if f.submodule then
-          add(segs, { " (submodule)", DIM })
-        end
-        local item = { kind = "file", section = section, file = f }
-        out[#out + 1] = { segs = segs, item = item }
+    file_section(out, section, fs[section], {
+      label = SECTION_LABEL[section],
+      icon = ic[section],
+      header_hl = HEADER_HL[section],
+      hl = ITEM_HL[section],
+      hint = section_hints[section],
+    }, opts)
+  end
+  return out
+end
 
-        local diff = opts.expanded and opts.expanded[M.diff_key(f)]
-        if diff then
-          local max = config.status.diff.max_lines
-          local function ditem(i)
-            return { kind = "diff", section = section, file = f, diff_line = i }
-          end
-          for i, dl in ipairs(diff) do
-            if i > max then
-              out[#out + 1] = { segs = { { ("      … %d more lines"):format(#diff - max), DIM } }, item = ditem(i) }
-              break
-            end
-            out[#out + 1] = { segs = { { "      " }, { dl, diff_line_hl(dl) } }, item = ditem(i) }
-          end
-          if #diff == 0 then
-            out[#out + 1] = { segs = { { "      (no diff)", DIM } }, item = ditem(0) }
-          end
-        end
-      end
-    end
+--- The stash box: the stash's subject, then its files like the Files box.
+---@param view GitStashView
+---@param opts GitRenderOpts
+local function stash_files(view, opts)
+  local ic = require("git.config").icons()
+  local out = {
+    {
+      segs = add_hint({ { " " .. view.stash.ref .. " " .. view.stash.subject, "GitStatusStash" } }, hint({
+        { "stash_pop", "pop" },
+        { "stash_apply", "apply" },
+        { "stash_drop", "drop" },
+        { "close", "back" },
+      })),
+    },
+  }
+  local before = #out
+  file_section(out, "changes", view.files.changes, {
+    label = "Changes",
+    icon = ic.unstaged,
+    header_hl = HEADER_HL.unstaged,
+    hl = ITEM_HL.unstaged,
+    hint = hint({ { "toggle_diff", "diff" } }),
+    stash = view.stash.hash,
+  }, opts)
+  file_section(out, "untracked", view.files.untracked, {
+    label = SECTION_LABEL.untracked,
+    icon = ic.untracked,
+    header_hl = HEADER_HL.untracked,
+    hl = ITEM_HL.untracked,
+    hint = hint({ { "toggle_diff", "diff" } }),
+    stash = view.stash.hash,
+  }, opts)
+  if #out == before then
+    out[#out + 1] = { segs = {} }
+    out[#out + 1] = { segs = { { " (no changes)", DIM } } }
   end
   return out
 end
@@ -656,10 +725,12 @@ function M.render(state, opts)
   local b = Builder.new(opts.width)
   -- Commit details show only the graph and the commit; open diffs show only the files.
   -- Otherwise the fixed boxes come first and files and graph share the rest; a clean tree shows no files box.
-  -- While composing a commit message, its box takes the place of the files box. A zoomed box is shown alone.
-  local commit = not opts.compose and opts.commit or nil
-  local zoom = not commit and not opts.compose and opts.zoom or nil
-  local overview = not commit and not zoom and not next(opts.expanded or {})
+  -- While composing a commit message, its box takes the place of the files box. A zoomed box is shown alone,
+  -- and so is a shown stash.
+  local stash = not opts.compose and opts.stash or nil
+  local commit = not stash and not opts.compose and opts.commit or nil
+  local zoom = not stash and not commit and not opts.compose and opts.zoom or nil
+  local overview = not stash and not commit and not zoom and not next(opts.expanded or {})
   local regions = {}
   --- b:box, recording the box's line range under `name`.
   local function box(name, ...)
@@ -679,7 +750,9 @@ function M.render(state, opts)
   -- The scrollable boxes, as { name, title, rows, height } (height incl. the 2 border lines).
   local avail = (opts.height or 0) - #b.lines
   local layout
-  if commit then
+  if stash then
+    layout = { { "stash", "Stash", stash_files(stash, opts), avail } }
+  elseif commit then
     local g = math.floor(avail * 0.3)
     layout = {
       { "graph", "Graph", commit_graph(state, opts.search), g },

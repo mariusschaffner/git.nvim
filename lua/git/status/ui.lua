@@ -28,6 +28,7 @@ M.ns = ns
 ---@field expanded table<string, string[]>
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
+---@field stash GitStashView? The stash shown alone
 ---@field zoom ("files"|"graph")? Box shown alone over the full height
 ---@field graph_limit integer Commits to load into the graph (a page; grows when scrolling down)
 ---@field loading_more boolean
@@ -339,6 +340,7 @@ function View:redraw(opts)
     height = vim.api.nvim_win_get_height(self.win),
     expanded = self.expanded,
     commit = self.commit,
+    stash = self.stash,
     compose = self.editor and (self.editor.title or true),
     fetching = self.fetch_frame and M.spinner()[self.fetch_frame],
     zoom = self.zoom,
@@ -493,6 +495,7 @@ function View:start_commit(opts)
   vim.bo[buf].modified = false
   self.editor = { buf = buf, mode = mode, hash = opts.hash, title = opts.title }
   self.commit = nil
+  self:_forget_stash()
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = self.augroup,
@@ -701,6 +704,68 @@ function View:toggle_commits(hashes, cb)
   end
 end
 
+--- Show a stash alone, its files listed like the Files box (diffs toggle the same way); again on it hides it.
+---@param stash GitStash
+---@param cb fun()?
+function View:toggle_stash(stash, cb)
+  if self.stash and self.stash.stash.hash == stash.hash then
+    self:hide_stash()
+    if cb then
+      cb()
+    end
+    return
+  end
+  queries.stash_files(self.repo, stash.hash, function(files, err)
+    if self.closed then
+      return
+    end
+    if not files then
+      util.notify(err or "git stash show failed", vim.log.levels.ERROR)
+      return
+    end
+    self:_forget_stash()
+    self.stash = { stash = stash, files = files }
+    self.commit = nil
+    self.scroll.stash = 0
+    self:redraw()
+    -- On the first file, so <Tab> opens its diff right away.
+    local box = self.rendered and self.rendered.boxes.stash
+    if box and self:valid() then
+      for lnum = box.top, box.top + box.rows - 1 do
+        local it = self.rendered.items[lnum]
+        if it and it.kind == "file" then
+          vim.api.nvim_win_set_cursor(self.win, { lnum, 0 })
+          break
+        end
+      end
+    end
+    if cb then
+      cb()
+    end
+  end)
+end
+
+--- Leave the stash view, back on its entry in the Stashes box.
+function View:hide_stash()
+  local ref = self.stash and self.stash.stash.ref
+  self:_forget_stash()
+  self:redraw({ key = ref and ("stash:" .. ref) })
+end
+
+--- Drop the shown stash and its expanded diffs.
+function View:_forget_stash()
+  if not self.stash then
+    return
+  end
+  local prefix = self.stash.stash.hash .. ":"
+  for key in pairs(self.expanded) do
+    if vim.startswith(key, prefix) then
+      self.expanded[key] = nil
+    end
+  end
+  self.stash = nil
+end
+
 function View:hide_commit()
   local hash = self.commit and self.commit.hash
   self.commit = nil
@@ -841,6 +906,7 @@ function View:refresh(cb)
       end
       self.state = state
       self.loading_more = false
+      self:_sync_stash(state)
       self:redraw()
       self:_maybe_fetch_tags(state)
       if cb then
@@ -848,6 +914,21 @@ function View:refresh(cb)
       end
     end)
   end, { max_commits = self.graph_limit })
+end
+
+--- The shown stash's ref shifts as stashes are pushed and dropped; once it is gone (popped, dropped) the
+--- stash view closes.
+function View:_sync_stash(state)
+  if not self.stash then
+    return
+  end
+  for _, s in ipairs(state.stashes) do
+    if s.hash == self.stash.stash.hash then
+      self.stash.stash = s
+      return
+    end
+  end
+  self:_forget_stash()
 end
 
 --- Re-fetch the expanded diffs for files that still exist; forget the others.
@@ -858,11 +939,19 @@ function View:_refresh_diffs(state, cb)
       present[render.diff_key(f)] = f
     end
   end
+  -- The shown stash's diffs are kept: a stash never changes.
+  for _, list in pairs(self.stash and self.stash.files or {}) do
+    for _, f in ipairs(list) do
+      present[render.diff_key(f)] = f
+    end
+  end
   local tasks = {}
   local expanded = {}
-  for key in pairs(self.expanded) do
+  for key, lines in pairs(self.expanded) do
     local f = present[key]
-    if f then
+    if f and f.stash then
+      expanded[key] = lines
+    elseif f then
       tasks[#tasks + 1] = function(done)
         queries.file_diff(self.repo, f, function(lines)
           expanded[key] = lines or { "(diff unavailable)" }

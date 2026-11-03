@@ -92,6 +92,16 @@ describe("parse.status", function()
     local s = status.parse("")
     eq(0, #s.files.staged + #s.files.unstaged + #s.files.untracked + #s.files.conflicted)
   end)
+
+  it("parses name-status output, renames included", function()
+    local out = "M" .. Z .. "a.txt" .. Z .. "R087" .. Z .. "old.txt" .. Z .. "new.txt" .. Z .. "A" .. Z .. "b c.txt" .. Z
+    eq({
+      { code = "M", path = "a.txt", section = "changes", submodule = false },
+      { code = "R", orig = "old.txt", path = "new.txt", section = "changes", submodule = false },
+      { code = "A", path = "b c.txt", section = "changes", submodule = false },
+    }, status.parse_name_status(out, "changes"))
+    eq({}, status.parse_name_status("", "changes"))
+  end)
 end)
 
 describe("parse.numstat", function()
@@ -123,11 +133,11 @@ describe("parse.log", function()
   end)
 
   it("parses stash entries", function()
-    local s = log.parse_stashes("stash@{0}\31WIP on main: abc msg\30\nstash@{1}\31On main: other\30\n")
-    eq(
-      { { ref = "stash@{0}", subject = "WIP on main: abc msg" }, { ref = "stash@{1}", subject = "On main: other" } },
-      s
-    )
+    local s = log.parse_stashes("stash@{0}\31aaa\31WIP on main: abc msg\30\nstash@{1}\31bbb\31On main: other\30\n")
+    eq({
+      { ref = "stash@{0}", hash = "aaa", subject = "WIP on main: abc msg" },
+      { ref = "stash@{1}", hash = "bbb", subject = "On main: other" },
+    }, s)
   end)
 end)
 

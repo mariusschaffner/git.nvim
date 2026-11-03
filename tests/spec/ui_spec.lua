@@ -272,6 +272,102 @@ describe("ui", function()
     eq({ "stashed 2" }, vim.fn.readfile(dir .. "/tracked.txt"))
   end)
 
+  it("stashes the file under the cursor with S, or all changes elsewhere", function()
+    H.write(dir, "tracked.txt", { "changed" })
+    H.write(dir, "new.txt", { "new" })
+    local view = open(dir, "float")
+    local orig = vim.ui.input
+    local prompt
+    vim.ui.input = function(o, cb)
+      prompt = o.prompt
+      cb("only tracked")
+    end
+    local lnum = find_line(view, function(it)
+      return it.kind == "file" and it.file.path == "tracked.txt"
+    end)
+    vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
+    settle(view, function()
+      actions.stash_push(view, { view:item() })
+    end)
+    eq("Stash 1 file, message: ", prompt)
+    eq(1, #view.state.stashes)
+    matches("only tracked", view.state.stashes[1].subject)
+    eq({ "one" }, vim.fn.readfile(dir .. "/tracked.txt"))
+    eq(1, vim.fn.filereadable(dir .. "/new.txt"), "other files stay")
+
+    -- On no file: everything, untracked files included; an empty message is git's default.
+    vim.ui.input = function(o, cb)
+      prompt = o.prompt
+      cb("")
+    end
+    settle(view, function()
+      actions.stash_push(view, {})
+    end)
+    vim.ui.input = orig
+    eq("Stash all changes, message: ", prompt)
+    eq(2, #view.state.stashes)
+    matches("^WIP on", view.state.stashes[1].subject)
+    eq(0, vim.fn.filereadable(dir .. "/new.txt"))
+  end)
+
+  it("shows a stash's files like the Files box, with inline diffs, and goes back with q", function()
+    H.write(dir, "tracked.txt", { "one", "two" })
+    H.write(dir, "new.txt", { "fresh" })
+    H.git(dir, { "stash", "push", "--quiet", "--include-untracked", "-m", "wip" })
+    local view = open(dir, "float")
+    local _, stash = find_line(view, function(it)
+      return it.kind == "stash"
+    end)
+    H.await(function(done)
+      view:toggle_stash(stash.stash, done)
+    end)
+    local text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n")
+    matches("Stash", text)
+    matches("Changes %(1%)", text)
+    matches("Untracked %(1%)", text)
+    ok(not text:find("Branches"), "only the stash box is shown")
+    eq("tracked.txt", view:item().file.path, "cursor on the first file")
+
+    H.await(function(done)
+      view:toggle_diff(view:item().file, true, done)
+    end)
+    ok(find_line(view, function(it)
+      return it.kind == "diff" and it.file.stash and view.expanded[require("git.status.render").diff_key(it.file)][it.diff_line] == "+two"
+    end), "stashed diff shown inline")
+    local f = file_item(view, "untracked", "new.txt").file
+    H.await(function(done)
+      view:toggle_diff(f, true, done)
+    end)
+    matches("%+fresh", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+    -- stage / discard leave a stash's files alone
+    actions.discard(view, { view:item() })
+    eq({ "one" }, vim.fn.readfile(dir .. "/tracked.txt"))
+
+    -- a refresh keeps the view and its diffs
+    H.await(function(done)
+      view:refresh(done)
+    end)
+    ok(view.stash, "still shown after a refresh")
+    matches("%+fresh", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+
+    vim.api.nvim_feedkeys("q", "x", false)
+    eq(nil, view.stash)
+    eq({}, view.expanded, "the stash's diffs are forgotten")
+    eq("stash", view:item().kind, "back on the stash entry")
+    ok(view.win and vim.api.nvim_win_is_valid(view.win))
+
+    -- popping the shown stash closes its view
+    H.await(function(done)
+      view:toggle_stash(stash.stash, done)
+    end)
+    settle(view, function()
+      actions.stash(view, "pop")
+    end)
+    eq(nil, view.stash)
+    eq(0, #view.state.stashes)
+    eq({ "one", "two" }, vim.fn.readfile(dir .. "/tracked.txt"))
+  end)
+
   it("redraws to the new width on resize", function()
     local view = open(dir, "split")
     vim.cmd("vsplit")

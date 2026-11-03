@@ -4,7 +4,7 @@ local M = {}
 
 -- Unit separator between fields, record separator after each commit.
 M.FORMAT = "--pretty=tformat:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1e"
-M.STASH_FORMAT = "--pretty=tformat:%gd%x1f%s%x1e"
+M.STASH_FORMAT = "--pretty=tformat:%gd%x1f%H%x1f%s%x1e"
 
 ---@class GitCommit
 ---@field hash string
@@ -46,6 +46,7 @@ end
 
 ---@class GitStash
 ---@field ref string e.g. stash@{0}
+---@field hash string The stash commit; stays the same while the ref shifts as stashes are pushed and dropped
 ---@field subject string
 
 --- Parse `git stash list` output produced with `M.STASH_FORMAT`.
@@ -54,8 +55,8 @@ end
 function M.parse_stashes(out)
   local stashes = {}
   for _, f in ipairs(records(out)) do
-    if #f >= 2 then
-      stashes[#stashes + 1] = { ref = f[1], subject = table.concat(f, "\31", 2) }
+    if #f >= 3 then
+      stashes[#stashes + 1] = { ref = f[1], hash = f[2], subject = table.concat(f, "\31", 3) }
     end
   end
   return stashes

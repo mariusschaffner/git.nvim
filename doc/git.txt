@@ -30,8 +30,8 @@ current directory) in up to five panels:
              unpushed commits are marked `!`, incoming (not yet pulled)
              ones get a background color
 
-Files can be staged, unstaged and discarded from the view, stashes popped,
-applied and dropped, and commits and stashes opened. All git commands run
+Files can be staged, unstaged and discarded from the view, stashes created,
+popped, applied and dropped, and commits and stashes opened. All git commands run
 asynchronously; the view refreshes itself when the index or HEAD changes.
 Unpushed and incoming (fetched, not yet pulled) commits are marked with `!`.
 Unpushed commits on top of the upstream branch, and incoming commits on top
@@ -54,7 +54,10 @@ mouse wheel (the box under the mouse). The bottom border shows the visible range
 While any inline diff is open, only the Files box is shown, using the whole
 view. `<CR>` on a commit shows only the Graph (30%) and a Commit box with the
 commit (`git show`, 70%) below it; `<CR>` on the same commit or `q`/`<Esc>`
-closes it again.
+closes it again. `<CR>` on a stash shows only a Stash box, listing the
+stash's files like the Files box (Changes, and Untracked when it has
+untracked files) with their +/- counts; `<Tab>` toggles their diffs inline
+and `q`/`<Esc>` goes back.
 
 ==============================================================================
 2. REQUIREMENTS                                         *git-requirements*
@@ -104,13 +107,19 @@ Buffer-local mappings in the status view (press `?` for this list):
   X         Discard unstaged changes / delete untracked files. Asks first.
             Staged changes must be unstaged before they can be discarded.
   <Tab>     Toggle the inline diff of a file (on a header: of all files).
-  <CR>      Open the file (on a diff line: at that line) or the stash
-            (`git stash show -p`). On a commit: toggle its details box. The
+  <CR>      Open the file (on a diff line: at that line). On a stash: show
+            its files (see |git-introduction|). On a commit: toggle its
+            details box. The
             cursor moves into the details; `k` on their first line goes to
             the top of the graph, `q` back to the commit. On several commits
             selected in Visual mode: show them combined (each header, then
             one diff from the oldest one's parent to the newest).
-  P A D     Pop / apply / drop the stash under the cursor (drop asks first).
+  S         Stash the file under the cursor, the files of a section (on
+            its header) or the selected files in Visual mode; anywhere else
+            all local changes. Untracked files are included. Asks for a
+            message first (empty: git's "WIP on <branch>").
+  P A D     Pop / apply / drop the stash under the cursor, or the one shown
+            in the Stash box (drop asks first).
   c         Commit menu: a popup lists the next key, which picks
               c c   commit the staged changes: the files box turns into an
                     editable commit message box (filetype `gitcommit`)
@@ -197,6 +206,7 @@ Defaults: >lua
         stash_pop = "P",
         stash_apply = "A",
         stash_drop = "D",
+        stash_push = "S",      -- stash files / all changes
         commit = "c",          -- commit menu; the next key picks:
         commit_create = "c",   --   commit the staged changes
         commit_amend = "a",    --   amend the last commit
