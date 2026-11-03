@@ -38,7 +38,8 @@ of your HEAD, are drawn on a side lane to the right that joins the commit
 below them (`├─╯`). Once pushed / pulled, the graph is a straight line again.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
-split the height left after Branches, Tags and Stashes evenly and scroll on their
+split the height left after Branches, Tags and Stashes evenly (with a clean
+working tree there is no Files box and the Graph takes all of it) and scroll on their
 own: `j`/`k` past a box edge, `<C-e>` `<C-y>` `<C-d>` `<C-u>` `<C-f>` `<C-b>`
 `<PageDown>` `<PageUp>` (the box under the cursor, else the graph) and the
 mouse wheel (the box under the mouse). The bottom border shows the visible range when a box overflows.
@@ -228,7 +229,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusBorder           box borders            grey (#808080)
   GitStatusFloatTitle       float window title     -> FloatTitle
   GitStatusBoxTitle         box titles             -> Title
-  GitStatusDim              hints, zero counts     -> Comment
+  GitStatusDim              zero counts, notes     -> Comment
   GitStatusLabel            Remote:, HEAD: ...     -> Keyword
   GitStatusTagLabel         tag labels             -> Label
   GitStatusTag              tag at HEAD            -> Constant
@@ -256,6 +257,8 @@ with |nvim_set_hl()| are left alone.
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ref names (line above) grey (#8a8a8a)
+  GitStatusHintKey          key in key hints       orange (#ff8700)
+  GitStatusHint             key hint labels        dim grey (#6c6c6c)
   GitStatusSearch           graph search matches   copy of Search
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines

@@ -4,7 +4,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 
 ```
 ╭── Branches ────────────────────────────────────────────────────────────────╮
-│  Remote: [v1] | origin/main                                                │
+│  Remote: [v1] | origin/main | f fetch                                      │
 │  HEAD:   [^2] | main (protected)                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Tags ────────────────────────────────────────────────────────────────────╮

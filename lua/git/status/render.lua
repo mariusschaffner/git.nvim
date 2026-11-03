@@ -64,6 +64,8 @@ local OPERATION = {
 }
 
 local DIM = "GitStatusDim"
+local HINT = "GitStatusHint"
+local HINT_KEY = "GitStatusHintKey"
 
 -- Content rows of the commit message box when the view has no fixed height.
 M.COMPOSE_ROWS = 6
@@ -94,29 +96,41 @@ function M.diff_key(file)
   return file.section .. ":" .. file.path
 end
 
---- " | k1 label1 · k2 label2" from the configured keymaps, or nil when hints are off / no key is mapped.
+--- "k1 label1 · k2 label2" from the configured keymaps, keys highlighted apart from the labels,
+--- or nil when hints are off / no key is mapped.
 ---@param pairs_ { [1]: string, [2]: string }[] {action, label}
 ---@param extra string? A git command hint appended at the end
----@return GitSeg?
-local function hint(pairs_, extra)
+---@return GitSeg[]?
+local function hint_segs(pairs_, extra)
   local config = require("git.config")
   if not config.options.status.hints then
     return nil
   end
-  local parts = {}
+  local segs = {}
   for _, p in ipairs(pairs_) do
     local key = config.key(p[1])
     if key then
-      parts[#parts + 1] = key .. " " .. p[2]
+      if #segs > 0 then
+        segs[#segs + 1] = { " · ", HINT }
+      end
+      segs[#segs + 1] = { key, HINT_KEY }
+      segs[#segs + 1] = { " " .. p[2], HINT }
     end
   end
   if extra then
-    parts[#parts + 1] = extra
+    segs[#segs + 1] = { (#segs > 0 and " · " or "") .. extra, HINT }
   end
-  if #parts == 0 then
-    return nil
+  return #segs > 0 and segs or nil
+end
+
+--- hint_segs after a " | " separator, for the end of a row.
+---@return GitSeg[]?
+local function hint(pairs_, extra)
+  local segs = hint_segs(pairs_, extra)
+  if segs then
+    table.insert(segs, 1, { " | ", HINT })
   end
-  return { " | " .. table.concat(parts, " · "), DIM }
+  return segs
 end
 
 ---@param s GitSeg?
@@ -125,6 +139,11 @@ local function add(segs, s)
     segs[#segs + 1] = s
   end
   return segs
+end
+
+---@param h GitSeg[]?
+local function add_hint(segs, h)
+  return vim.list_extend(segs, h or {})
 end
 
 ---@class GitBuilder
@@ -162,13 +181,27 @@ function Builder:top(title)
   })
 end
 
----@param label string? Shown at the right end of the border (e.g. a scroll position)
+---@param label (string|GitSeg[])? Shown at the right end of the border (e.g. a scroll position)
 function Builder:bottom(label)
-  label = label and util.truncate(label, math.max(self.width - 4, 0)) or ""
-  local fill = string.rep("─", math.max(self.width - 3 - util.width(label), 0))
-  local text = "╰" .. fill .. label .. "─╯"
-  local a, b = #"╰" + #fill, #"╰" + #fill + #label
-  self:_push(text, { { 0, a, "GitStatusBorder" }, { a, b, DIM }, { b, #text, "GitStatusBorder" } })
+  local segs = type(label) == "table" and label or { { label or "", DIM } }
+  local max = math.max(self.width - 4, 0)
+  local plain = table.concat(vim.tbl_map(function(s)
+    return s[1]
+  end, segs))
+  if util.width(plain) > max then
+    segs = { { util.truncate(plain, max), DIM } }
+    plain = segs[1][1]
+  end
+  local fill = string.rep("─", math.max(self.width - 3 - util.width(plain), 0))
+  local text = "╰" .. fill .. plain .. "─╯"
+  local col = #"╰" + #fill
+  local marks = { { 0, col, "GitStatusBorder" } }
+  for _, s in ipairs(segs) do
+    marks[#marks + 1] = { col, col + #s[1], s[2] }
+    col = col + #s[1]
+  end
+  marks[#marks + 1] = { col, #text, "GitStatusBorder" }
+  self:_push(text, marks)
 end
 
 ---@param segs GitSeg[]
@@ -212,7 +245,7 @@ end
 ---@param content { segs: GitSeg[], item: GitItem?, line_hl: string? }[]
 ---@param rows integer? Fixed number of content rows; content is windowed by `offset` and padded
 ---@param offset integer?
----@param label string? Bottom border label when the content is not scrolled
+---@param label (string|GitSeg[])? Bottom border label when the content is not scrolled
 ---@return integer? top 1-based line of the first content row
 function Builder:box(title, content, rows, offset, label)
   if #content == 0 and not rows then
@@ -266,6 +299,8 @@ local function branches(state, opts)
   end
   if opts.fetching then
     add(remote, { "  " .. opts.fetching .. " fetching…", DIM })
+  elseif #state.remotes > 0 then
+    add_hint(remote, hint({ { "fetch", "fetch" } }))
   end
   row(remote)
 
@@ -324,7 +359,7 @@ local function stashes(state)
     return out
   end
   out[1] = {
-    segs = add({
+    segs = add_hint({
       { " " .. ic.stash .. "Stashes: ", "GitStatusLabel" },
       { "[" .. #state.stashes .. "]", "GitStatusStash" },
     }, hint({ { "stash_pop", "pop" }, { "stash_apply", "apply" }, { "stash_drop", "drop" }, { "open", "show" } })),
@@ -409,7 +444,7 @@ local function files(state, opts)
         out[#out + 1] = { segs = {} }
       end
       out[#out + 1] = {
-        segs = add(
+        segs = add_hint(
           { { " " .. ic[section] .. SECTION_LABEL[section] .. " (" .. #list .. ")", header_hl[section] } },
           section_hints[section]
         ),
@@ -589,20 +624,14 @@ local function commit_details(commit)
 end
 
 --- " k1 commit · k2 cancel " for the commit message box's bottom border.
----@return string?
+---@return GitSeg[]?
 local function compose_label()
-  local config = require("git.config")
-  if not config.options.status.hints then
-    return nil
+  local segs = hint_segs({ { "commit_submit", "commit" }, { "commit_abort", "cancel" } })
+  if segs then
+    table.insert(segs, 1, { " ", HINT })
+    segs[#segs + 1] = { " ", HINT }
   end
-  local parts = {}
-  for _, p in ipairs({ { "commit_submit", "commit" }, { "commit_abort", "cancel" } }) do
-    local key = config.key(p[1])
-    if key then
-      parts[#parts + 1] = key .. " " .. p[2]
-    end
-  end
-  return #parts > 0 and (" " .. table.concat(parts, " · ") .. " ") or nil
+  return segs
 end
 
 ---@param commit GitCommitDetails
@@ -621,7 +650,7 @@ end
 function M.render(state, opts)
   local b = Builder.new(opts.width)
   -- Commit details show only the graph and the commit; open diffs show only the files.
-  -- Otherwise the fixed boxes come first and files and graph share the rest.
+  -- Otherwise the fixed boxes come first and files and graph share the rest; a clean tree shows no files box.
   -- While composing a commit message, its box takes the place of the files box. A zoomed box is shown alone.
   local commit = not opts.compose and opts.commit or nil
   local zoom = not commit and not opts.compose and opts.zoom or nil
@@ -661,9 +690,13 @@ function M.render(state, opts)
         or ("Commit message (%d staged file%s)"):format(n, n == 1 and "" or "s")
       first = { "compose", title, {} }
     end
+    local fs = state.files
+    local clean = #fs.conflicted + #fs.staged + #fs.unstaged + #fs.untracked == 0
     if not overview then
       first[4] = avail
       layout = { first }
+    elseif clean and not opts.compose then
+      layout = { { "graph", "Graph", commit_graph(state, opts.search), avail } }
     else
       first[4] = math.floor(avail / 2)
       layout = { first, { "graph", "Graph", commit_graph(state, opts.search), avail - first[4] } }

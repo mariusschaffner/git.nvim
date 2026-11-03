@@ -51,6 +51,9 @@ M.links = {
 M.colors = {
   GitStatusBorder = { fg = "#808080", ctermfg = 244 },
   GitStatusDeco = { fg = "#8a8a8a", ctermfg = 245 },
+  -- Key binding hints: the key in orange, its label and the separators in a dimmed grey.
+  GitStatusHintKey = { fg = "#ff8700", ctermfg = 208 },
+  GitStatusHint = { fg = "#6c6c6c", ctermfg = 242 },
   -- Background of whole graph rows; background only, so the row keeps its text colors.
   -- Search matches in the graph: a copy of Search, background included.
   GitStatusSearch = function()

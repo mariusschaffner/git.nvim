@@ -58,10 +58,18 @@ describe("render", function()
     matches("…", text(r))
   end)
 
-  it("shows a clean working tree instead of bailing out", function()
-    local r = render.render(state(), { width = 80 })
-    matches("Working tree clean", text(r))
+  it("drops the files box on a clean working tree and gives the graph its space", function()
+    local s = state({ graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "HEAD -> main", subject = "first" } } })
+    local r = render.render(s, { width = 80 })
+    ok(not text(r):find("Files"), "no files box")
     matches("Branches", text(r))
+    matches("Graph", text(r))
+    r = render.render(s, { width = 80, height = 30 })
+    eq(nil, r.boxes.files)
+    eq(30, #r.lines)
+    eq(30 - r.boxes.graph.top, r.boxes.graph.rows)
+    -- Zoomed explicitly, the files box still says the tree is clean.
+    matches("Working tree clean", text(render.render(state(), { width = 80, height = 30, zoom = "files" })))
   end)
 
   it("shows no git command hints in the branch box, and a spinner while fetching", function()
@@ -182,6 +190,7 @@ describe("render", function()
       branch = { behind = 2, upstream = "origin/main", ahead = 1 },
       tags = { nearest = "v1-2-gabc", unpushed = { "v2" } },
       operation = "rebase",
+      files = { untracked = { { path = "new.txt", code = "?", section = "untracked" } } },
     })
     local r = render.render(s, { width = 200 })
     matches("HEAD:.*Rebase in progress", r.lines[3])
@@ -283,6 +292,25 @@ describe("render", function()
     })
     matches("| %- stage", text(r))
     ok(not text(r):find("discard"))
+  end)
+
+  it("hints fetch on the Remote row, with keys highlighted apart from their labels", function()
+    local s = state({ branch = { upstream = "origin/main" } })
+    local r = render.render(s, { width = 120 })
+    matches("origin/main | f fetch", r.lines[2])
+    local hls = {}
+    for _, m in ipairs(r.marks) do
+      if m.row == 1 then
+        hls[r.lines[2]:sub(m.col + 1, m.end_col)] = m.hl
+      end
+    end
+    eq("GitStatusHintKey", hls.f)
+    eq("GitStatusHint", hls[" fetch"])
+    eq("GitStatusHint", hls[" | "])
+    -- the spinner takes its place while fetching; no hint without a remote
+    ok(not render.render(s, { width = 120, fetching = "|" }).lines[2]:find("f fetch"))
+    local no_remote = render.render(vim.tbl_extend("force", state(), { remotes = {} }), { width = 120 })
+    ok(not no_remote.lines[2]:find("fetch"))
   end)
 
   it("replaces the files box with a commit message box while composing", function()
