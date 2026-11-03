@@ -245,23 +245,27 @@ with |nvim_set_hl()| are left alone.
   GitStatusSection{Conflicted,Staged,Unstaged,Untracked}   section headers
   GitStatus{Conflicted,Staged,Unstaged,Untracked}          file markers
   GitStatusFile             file names             -> Normal
-  GitStatusAdded            +N                     -> Added
+  GitStatusAdded            +N                     green (*)
   GitStatusDeleted          -N                     -> Removed
   GitStatusGraph            graph lines            -> Comment
   GitStatusGraphCommit      commit node            -> Function
   GitStatusGraphMerge       merge node             -> Statement
-  GitStatusGraphUnpushed    unpushed node and !    -> Added
+  GitStatusGraphUnpushed    unpushed node and !    green (*)
   GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
   GitStatusHash             pushed commit hash     -> Identifier
-  GitStatusHashUnpushed     unpushed commit hash   -> Added
+  GitStatusHashUnpushed     unpushed commit hash   green (*)
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ref names (line above) grey (#8a8a8a)
-  GitStatusHintKey          key in key hints       orange (#ff8700)
+  GitStatusHintKey          hint keys, fetching…   orange (#ff8700)
   GitStatusHint             key hint labels        dim grey (#6c6c6c)
   GitStatusSearch           graph search matches   copy of Search
   GitStatusSubject          commit subject         -> Normal
   GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
+
+(*) A muted green (#87af5f, #5f8700 on a light background) instead of a
+copy of Added, which is too bright in many colorschemes. Also used by
+GitStatusSectionStaged, GitStatusStaged and GitStatusDiffAdd.
 
 ==============================================================================
 8. LUA API                                                       *git-api*

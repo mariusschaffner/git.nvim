@@ -298,7 +298,7 @@ local function branches(state, opts)
     }
   end
   if opts.fetching then
-    add(remote, { "  " .. opts.fetching .. " fetching…", DIM })
+    add(remote, { "  " .. opts.fetching .. " fetching…", HINT_KEY })
   elseif #state.remotes > 0 then
     add_hint(remote, hint({ { "fetch", "fetch" } }))
   end

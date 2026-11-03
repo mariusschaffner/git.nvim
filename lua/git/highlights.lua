@@ -4,6 +4,12 @@ local M = {}
 -- italic (the plugin renders no italic text) and without background, so text never paints over the
 -- row backgrounds below it (e.g. GitStatusSubject copies Normal, whose bg would hide the unpushed row).
 -- Override any group with `vim.api.nvim_set_hl(0, "GitStatus...", {...})`.
+
+-- A muted green for everything added (staged, +N, unpushed, diff lines): Added is too bright in many colorschemes.
+local function green()
+  return vim.o.background == "light" and { fg = "#5f8700", ctermfg = 64 } or { fg = "#87af5f", ctermfg = 107 }
+end
+
 M.links = {
   GitStatusFloatTitle = "FloatTitle",
   GitStatusBoxTitle = "Title",
@@ -21,26 +27,20 @@ M.links = {
   GitStatusWarning = "WarningMsg",
   GitStatusStash = "Special",
   GitStatusSectionConflicted = "DiagnosticError",
-  GitStatusSectionStaged = "Added",
   GitStatusSectionUnstaged = "Changed",
   GitStatusSectionUntracked = "Special",
   GitStatusConflicted = "DiagnosticError",
-  GitStatusStaged = "Added",
   GitStatusUnstaged = "Changed",
   GitStatusUntracked = "Special",
   GitStatusFile = "Normal",
-  GitStatusAdded = "Added",
   GitStatusDeleted = "Removed",
   GitStatusGraph = "Comment",
   GitStatusGraphCommit = "Function",
   GitStatusGraphMerge = "Statement",
-  GitStatusGraphUnpushed = "Added",
   GitStatusGraphIncoming = "DiagnosticWarn",
   GitStatusHash = "Identifier",
-  GitStatusHashUnpushed = "Added",
   GitStatusHashIncoming = "DiagnosticWarn",
   GitStatusSubject = "Normal",
-  GitStatusDiffAdd = "Added",
   GitStatusDiffDelete = "Removed",
   GitStatusDiffHunk = "Function",
   GitStatusDiffHeader = "Comment",
@@ -54,6 +54,12 @@ M.colors = {
   -- Key binding hints: the key in orange, its label and the separators in a dimmed grey.
   GitStatusHintKey = { fg = "#ff8700", ctermfg = 208 },
   GitStatusHint = { fg = "#6c6c6c", ctermfg = 242 },
+  GitStatusSectionStaged = green,
+  GitStatusStaged = green,
+  GitStatusAdded = green,
+  GitStatusGraphUnpushed = green,
+  GitStatusHashUnpushed = green,
+  GitStatusDiffAdd = green,
   -- Background of whole graph rows; background only, so the row keeps its text colors.
   -- Search matches in the graph: a copy of Search, background included.
   GitStatusSearch = function()
