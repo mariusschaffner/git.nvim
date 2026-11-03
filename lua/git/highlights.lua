@@ -35,8 +35,6 @@ M.links = {
   GitStatusFile = "Normal",
   GitStatusDeleted = "Removed",
   GitStatusGraph = "Comment",
-  GitStatusGraphCommit = "Function",
-  GitStatusGraphMerge = "Statement",
   GitStatusGraphIncoming = "DiagnosticWarn",
   GitStatusHash = "Identifier",
   GitStatusHashIncoming = "DiagnosticWarn",
@@ -69,6 +67,35 @@ M.colors = {
     return vim.o.background == "light" and { bg = "#f5dfa8", ctermbg = 223 } or { bg = "#5c4a1f", ctermbg = 58 }
   end,
 }
+
+-- Graph branch colors (as many as graph.COLORS), { dark background, light background } as { gui, cterm }.
+-- GitStatusGraphLane<n> draws a branch's lines and commits, GitStatusGraphRef<n> its ref names on that color.
+-- No green: it marks unpushed commits.
+-- stylua: ignore
+local LANES = {
+  { { "#5fafd7", 74 },  { "#005f87", 24 } },  -- blue
+  { { "#d787af", 175 }, { "#af005f", 125 } }, -- pink
+  { { "#d7af5f", 179 }, { "#875f00", 94 } },  -- gold
+  { { "#87afaf", 109 }, { "#005f5f", 23 } },  -- teal
+  { { "#af87d7", 140 }, { "#5f00af", 55 } },  -- purple
+  { { "#d7875f", 173 }, { "#af5f00", 130 } }, -- salmon
+}
+for n, pair in ipairs(LANES) do
+  local function color()
+    return pair[vim.o.background == "light" and 2 or 1]
+  end
+  M.colors["GitStatusGraphLane" .. n] = function()
+    local c = color()
+    return { fg = c[1], ctermfg = c[2] }
+  end
+  M.colors["GitStatusGraphRef" .. n] = function()
+    local c = color()
+    if vim.o.background == "light" then
+      return { bg = c[1], ctermbg = c[2], fg = "#ffffff", ctermfg = 231 }
+    end
+    return { bg = c[1], ctermbg = c[2], fg = "#1c1c1c", ctermfg = 234 }
+  end
+end
 
 -- What setup() last applied per group, to tell our own definitions apart from user overrides.
 local applied = {}

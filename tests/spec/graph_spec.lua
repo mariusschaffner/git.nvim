@@ -84,6 +84,31 @@ describe("graph.layout", function()
     eq({ "○ b", "│ ○ x" }, rows)
   end)
 
+  it("draws each branch in its own color, junctions in the color of the branch that forks or ends", function()
+    local rows = graph.layout({ c("m", "a", "b"), c("b", "a"), c("a") })
+    local function hls(row)
+      return vim.tbl_map(function(seg)
+        return seg[2]
+      end, row.segments)
+    end
+    local l1, l2 = graph.lane_hl(1), graph.lane_hl(2)
+    eq({ l1 }, hls(rows[1])) -- ● m
+    eq(1, rows[1].color)
+    eq({ l1, l2, l2 }, hls(rows[2])) -- ├─╮
+    eq({ l1, "GitStatusGraph", l2 }, hls(rows[3])) -- │ ○ b
+    eq(2, rows[3].color)
+    eq({ l1, l2, l2 }, hls(rows[4])) -- ├─╯
+    eq({ l1 }, hls(rows[5])) -- ○ a
+    -- unrelated tips get colors in turn, wrapping around
+    local tips = {}
+    for i = 1, graph.COLORS + 1 do
+      tips[i] = c("t" .. i)
+    end
+    local out = graph.layout(tips)
+    eq(graph.COLORS, out[graph.COLORS].color)
+    eq(1, out[graph.COLORS + 1].color)
+  end)
+
   it("handles an empty list", function()
     eq({}, graph.layout({}))
   end)
@@ -114,9 +139,9 @@ describe("graph.layout", function()
     eq({ "  ○ u2", "  ○ u1", "├─╯", "○ p2", "○ p1" }, out)
     eq("GitStatusGraphUnpushed", rows[1].segments[3][2])
     eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" } }, graph.above(rows[1]))
-    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraph" } }, graph.above(rows[2]))
+    eq({ { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { "│", "GitStatusGraphLane6" } }, graph.above(rows[2]))
     -- the junction leads into the upstream commit
-    eq({ { "│", "GitStatusGraph" } }, graph.above(rows[4]))
+    eq({ { "│", "GitStatusGraphLane1" } }, graph.above(rows[4]))
     -- once pushed (or when nothing is pushed yet) the graph is straight again
     eq({ "○ u2", "○ u1", "○ p2", "○ p1" }, draw(commits))
     eq(4, #graph.layout(commits, { unpushed = { u2 = true, u1 = true, p2 = true, p1 = true } }))
@@ -138,7 +163,7 @@ describe("graph.layout", function()
     eq({ "  ○ i2", "  ○ i1", "├─╯", "○ h", "○ p" }, out)
     eq("GitStatusGraphIncoming", rows[1].segments[3][2])
     -- the junction leads into the local HEAD
-    eq({ { "│", "GitStatusGraph" } }, graph.above(rows[4]))
+    eq({ { "│", "GitStatusGraphLane1" } }, graph.above(rows[4]))
     -- diverged (incoming does not sit on the next commit): normal layout
     local diverged = { c("i1", "b"), c("u1", "b"), c("b") }
     eq("○", graph.layout(diverged, { incoming = { i1 = true }, unpushed = { u1 = true } })[1].segments[1][1])

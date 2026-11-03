@@ -6,6 +6,9 @@
 --- lane further right is pulled into the commit's lane so the mainline stays on the left. When
 --- anything moves sideways a transition row is emitted, whose glyphs are derived from which
 --- directions (up/down/left/right) each cell connects to.
+---
+--- Every lane gets a color when it starts (a branch tip or a fork) and keeps it while the branch goes
+--- on; the commit nodes, strokes and junctions of that branch are drawn in it.
 local M = {}
 
 local UP, DOWN, LEFT, RIGHT = 1, 2, 4, 8
@@ -24,10 +27,20 @@ local GLYPH = {
 M.COMMIT = "○"
 M.MERGE = "●"
 
+-- Number of lane colors (GitStatusGraphLane1.., GitStatusGraphRef1..), used in turn.
+M.COLORS = 6
+
+---@param color integer
+---@return string
+function M.lane_hl(color)
+  return "GitStatusGraphLane" .. color
+end
+
 ---@class GitGraphRow
 ---@field segments { [1]: string, [2]: string }[] Lane glyphs as {text, highlight group}
 ---@field commit GitCommit? Set on commit rows, nil on transition rows
 ---@field fresh boolean? Commit rows: the commit starts a lane here (nothing above connects to it)
+---@field color integer? Commit rows: color of the commit's lane
 
 local bor = bit.bor
 
@@ -36,11 +49,22 @@ local function col_pos(col)
 end
 
 ---@param commits GitCommit[] In topological order, newest first
+---@param reserved integer? A color left out (taken by the side lane)
 ---@return GitGraphRow[]
-local function lanes_layout(commits)
+local function lanes_layout(commits, reserved)
   local rows = {}
   ---@type (string|false)[]
   local lanes = {}
+  -- Color per lane; kept after the lane ends, for the junction that closes it.
+  ---@type integer[]
+  local colors = {}
+  local last = 0
+  local function new_color()
+    repeat
+      last = last % M.COLORS + 1
+    until last ~= reserved
+    return last
+  end
 
   local function find(hash, skip)
     for j = 1, #lanes do
@@ -54,10 +78,12 @@ local function lanes_layout(commits)
     for j = 1, #lanes do
       if j ~= skip and not lanes[j] then
         lanes[j] = hash
+        colors[j] = new_color()
         return j
       end
     end
     lanes[#lanes + 1] = hash
+    colors[#lanes] = new_color()
     return #lanes
   end
 
@@ -73,14 +99,17 @@ local function lanes_layout(commits)
         segs[#segs + 1] = { " ", "GitStatusGraph" }
       end
       if col == idx then
-        segs[#segs + 1] = is_merge and { M.MERGE, "GitStatusGraphMerge" } or { M.COMMIT, "GitStatusGraphCommit" }
+        segs[#segs + 1] = { is_merge and M.MERGE or M.COMMIT, M.lane_hl(colors[idx]) }
+      elseif lanes[col] then
+        segs[#segs + 1] = { "│", M.lane_hl(colors[col]) }
       else
-        segs[#segs + 1] = { lanes[col] and "│" or " ", "GitStatusGraph" }
+        segs[#segs + 1] = { " ", "GitStatusGraph" }
       end
     end
-    rows[#rows + 1] = { segments = segs, commit = c, fresh = not found }
+    rows[#rows + 1] = { segments = segs, commit = c, fresh = not found, color = colors[idx] }
 
-    -- assign parents to lanes; each edge is a horizontal connection drawn in the transition row
+    -- assign parents to lanes; each edge is a horizontal connection drawn in the transition row,
+    -- as { from, to, color }: in the color of the lane that ends or starts there
     local was_active = {}
     for col = 1, #lanes do
       was_active[col] = lanes[col] and true or false
@@ -93,14 +122,16 @@ local function lanes_layout(commits)
         lanes[existing] = false
         lanes[idx] = parent
         kept = true
-        edges[#edges + 1] = { existing, idx }
+        edges[#edges + 1] = { existing, idx, colors[existing] }
       elseif existing then
-        edges[#edges + 1] = { idx, existing }
+        -- a further parent merges in from its own lane; the first parent ends this lane in that one
+        edges[#edges + 1] = { idx, existing, kept and colors[existing] or colors[idx] }
       elseif not kept then
         lanes[idx] = parent
         kept = true
       else
-        edges[#edges + 1] = { idx, claim(parent, idx) }
+        local j = claim(parent, idx)
+        edges[#edges + 1] = { idx, j, colors[j] }
       end
     end
     if not kept then
@@ -110,14 +141,19 @@ local function lanes_layout(commits)
     -- transition row
     if #edges > 0 then
       local width = #lanes * 2 - 1
-      local cells = {}
+      local cells, cell_hl = {}, {}
       for pos = 1, width do
         cells[pos] = 0
       end
       -- vertical strokes: up when the lane was active above, down when it continues below
       for col = 1, #lanes do
-        cells[col_pos(col)] = bor(was_active[col] and UP or 0, lanes[col] and DOWN or 0)
+        local pos = col_pos(col)
+        cells[pos] = bor(was_active[col] and UP or 0, lanes[col] and DOWN or 0)
+        if cells[pos] ~= 0 then
+          cell_hl[pos] = M.lane_hl(colors[col])
+        end
       end
+      -- horizontal strokes take the edge's color, except where they cross a vertical one
       for _, e in ipairs(edges) do
         local a, b = col_pos(e[1]), col_pos(e[2])
         local lo, hi = math.min(a, b), math.max(a, b)
@@ -126,11 +162,14 @@ local function lanes_layout(commits)
         for pos = lo + 1, hi - 1 do
           cells[pos] = bor(cells[pos], LEFT + RIGHT)
         end
+        for pos = lo, hi do
+          cell_hl[pos] = cell_hl[pos] or M.lane_hl(e[3])
+        end
       end
 
       local tsegs = {}
       for pos = 1, width do
-        tsegs[pos] = { GLYPH[cells[pos]] or "┼", "GitStatusGraph" }
+        tsegs[pos] = { GLYPH[cells[pos]] or "┼", cell_hl[pos] or "GitStatusGraph" }
       end
       rows[#rows + 1] = { segments = tsegs }
     end
@@ -183,16 +222,19 @@ function M.layout(commits, opts)
   if n == 0 then
     return lanes_layout(commits)
   end
+  -- The side lane takes the last color; the history it joins starts with the first one.
+  local side = M.lane_hl(M.COLORS)
   local rows = {}
   for i = 1, n do
     rows[i] = {
       segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.COMMIT, hl } },
       commit = commits[i],
       fresh = i == 1,
+      color = M.COLORS,
     }
   end
-  rows[#rows + 1] = { segments = { { "├", "GitStatusGraph" }, { "─", "GitStatusGraph" }, { "╯", "GitStatusGraph" } } }
-  local rest = lanes_layout(vim.list_slice(commits, n + 1))
+  rows[#rows + 1] = { segments = { { "├", M.lane_hl(1) }, { "─", side }, { "╯", side } } }
+  local rest = lanes_layout(vim.list_slice(commits, n + 1), M.COLORS)
   rest[1].fresh = false -- the junction above leads into it
   return vim.list_extend(rows, rest)
 end
@@ -204,11 +246,12 @@ end
 function M.above(row)
   local out = {}
   for i, seg in ipairs(row.segments) do
-    local t = seg[1]
+    local t, hl = seg[1], seg[2]
     if t == M.COMMIT or t == M.MERGE then
       t = row.fresh and " " or "│"
+      hl = row.fresh and "GitStatusGraph" or M.lane_hl(row.color)
     end
-    out[i] = { t, "GitStatusGraph" }
+    out[i] = { t, hl }
   end
   return out
 end

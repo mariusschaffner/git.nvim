@@ -36,6 +36,8 @@ Unpushed and incoming (fetched, not yet pulled) commits are marked with `!`.
 Unpushed commits on top of the upstream branch, and incoming commits on top
 of your HEAD, are drawn on a side lane to the right that joins the commit
 below them (`├─╯`). Once pushed / pulled, the graph is a straight line again.
+Each branch's lines and commits are drawn in a color of its own, and the
+ref names above a commit are set on its branch's color.
 
 The view always fits its window and never scrolls as a whole. Files and Graph
 split the height left after Branches, Tags and Stashes evenly (with a clean
@@ -247,16 +249,16 @@ with |nvim_set_hl()| are left alone.
   GitStatusFile             file names             -> Normal
   GitStatusAdded            +N                     green (*)
   GitStatusDeleted          -N                     -> Removed
-  GitStatusGraph            graph lines            -> Comment
-  GitStatusGraphCommit      commit node            -> Function
-  GitStatusGraphMerge       merge node             -> Statement
+  GitStatusGraph            graph gaps             -> Comment
+  GitStatusGraphLane{1-6}   branch lines, nodes    branch colors (**)
+  GitStatusGraphRef{1-6}    ref names              branch colors as bg (**)
   GitStatusGraphUnpushed    unpushed node and !    green (*)
   GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   green (*)
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusIncomingLine     incoming commit row    amber background
-  GitStatusDeco             ref names (line above) grey (#8a8a8a)
+  GitStatusDeco             ", " between ref names grey (#8a8a8a)
   GitStatusHintKey          hint keys, fetching…   orange (#ff8700)
   GitStatusHint             key hint labels        dim grey (#6c6c6c)
   GitStatusSearch           graph search matches   copy of Search
@@ -266,6 +268,11 @@ with |nvim_set_hl()| are left alone.
 (*) A muted green (#87af5f, #5f8700 on a light background) instead of a
 copy of Added, which is too bright in many colorschemes. Also used by
 GitStatusSectionStaged, GitStatusStaged and GitStatusDiffAdd.
+
+(**) Branches take the colors in turn: blue, pink, gold, teal, purple,
+salmon (darker shades on a light background); a side lane of unpushed or
+incoming commits takes the last one. Its nodes keep the unpushed / incoming
+color.
 
 ==============================================================================
 8. LUA API                                                       *git-api*
