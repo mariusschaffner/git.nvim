@@ -251,7 +251,7 @@ with |nvim_set_hl()| are left alone.
   GitStatusDeleted          -N                     -> Removed
   GitStatusGraph            graph gaps             -> Comment
   GitStatusGraphLane{1-6}   branch lines, nodes    branch colors (**)
-  GitStatusGraphRef{1-6}    ref names              branch colors as bg (**)
+  GitStatusGraphRef{1-6}    ref names              branch colors on a tint (**)
   GitStatusGraphUnpushed    unpushed node and !    green (*)
   GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
   GitStatusHash             pushed commit hash     -> Identifier
@@ -272,7 +272,8 @@ GitStatusSectionStaged, GitStatusStaged and GitStatusDiffAdd.
 (**) Branches take the colors in turn: blue, pink, gold, teal, purple,
 salmon (darker shades on a light background); a side lane of unpushed or
 incoming commits takes the last one. Its nodes keep the unpushed / incoming
-color.
+color. Ref names are drawn in the branch color on a background of 25% of
+it mixed into the window background (NormalFloat for a float, else Normal).
 
 ==============================================================================
 8. LUA API                                                       *git-api*
