@@ -37,6 +37,10 @@ Unpushed and incoming (fetched, not yet pulled) commits are marked with `!`.
 Unpushed commits on top of the upstream branch, and incoming commits on top
 of your HEAD, are drawn on a side lane to the right that joins the commit
 below them (`├─╯`). Once pushed / pulled, the graph is a straight line again.
+When both exist (the branch has diverged), they share that side lane:
+incoming (red) on top, unpushed (orange) below, as they will collide. A
+blocked push marker `⊛─┤` sits between them (pull first), with a dotted
+lane `┆` from it down to the commit both started from.
 Each branch's lines and commits are drawn in a color of its own, and the
 ref names above a commit are in its branch's color.
 
@@ -252,6 +256,9 @@ with |nvim_set_hl()| are left alone.
   GitStatusGraphLane{1-6}   lines, nodes, refs     branch colors (**)
   GitStatusGraphUnpushed    unpushed node and !    green (*)
   GitStatusGraphIncoming    incoming node and !    -> DiagnosticWarn
+  GitStatusGraphDivergedIncoming  incoming node, diverged  -> DiagnosticError
+  GitStatusGraphDivergedUnpushed  unpushed node, diverged  orange (#ff8700)
+  GitStatusGraphBlocked     blocked push marker ⊛  -> DiagnosticError
   GitStatusHash             pushed commit hash     -> Identifier
   GitStatusHashUnpushed     unpushed commit hash   green (*)
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn

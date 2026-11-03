@@ -164,9 +164,32 @@ describe("graph.layout", function()
     eq("GitStatusGraphIncoming", rows[1].segments[3][2])
     -- the junction leads into the local HEAD
     eq({ { "│", "GitStatusGraphLane1" } }, graph.above(rows[4]))
-    -- diverged (incoming does not sit on the next commit): normal layout
-    local diverged = { c("i1", "b"), c("u1", "b"), c("b") }
-    eq("○", graph.layout(diverged, { incoming = { i1 = true }, unpushed = { u1 = true } })[1].segments[1][1])
-    eq("u1", graph.layout(diverged, { incoming = { i1 = true }, unpushed = { u1 = true } })[2].commit.hash)
+    -- incoming that does not sit on the next commit, and nothing unpushed: normal layout
+    local apart = { c("i1", "b"), c("x", "b"), c("b") }
+    eq("○", graph.layout(apart, { incoming = { i1 = true } })[1].segments[1][1])
+  end)
+
+  it("stacks incoming over unpushed commits on one side lane when diverged, with a blocked push marker", function()
+    -- topo order may interleave the two lines; the layout groups them, incoming on top
+    local commits = { c("u2", "u1"), c("i2", "i1"), c("u1", "b"), c("i1", "b"), c("b", "a"), c("a") }
+    local opts = { unpushed = { u1 = true, u2 = true }, incoming = { i1 = true, i2 = true } }
+    local rows = graph.layout(commits, opts)
+    local out = {}
+    for i, row in ipairs(rows) do
+      local s = table.concat(vim.tbl_map(function(seg)
+        return seg[1]
+      end, row.segments))
+      out[i] = (s:gsub("%s+$", "")) .. (row.commit and (" " .. row.commit.hash) or "")
+    end
+    eq({ "  ○ i2", "  ○ i1", "⊛─┤", "┆ ○ u2", "┆ ○ u1", "├─╯", "○ b", "○ a" }, out)
+    eq("GitStatusGraphDivergedIncoming", rows[1].segments[3][2])
+    eq("GitStatusGraphBlocked", rows[3].segments[1][2])
+    eq("GitStatusDim", rows[4].segments[1][2])
+    eq("GitStatusGraphDivergedUnpushed", rows[4].segments[3][2])
+    -- the line above an unpushed commit keeps the dotted lane and comes down from the marker
+    eq({ { "┆", "GitStatusDim" }, { " ", "GitStatusGraph" }, { "│", graph.lane_hl(graph.COLORS) } }, graph.above(rows[4]))
+    -- the two lines must each run straight onto the same base
+    local forked = { c("u1", "b"), c("i1", "x"), c("x", "b"), c("b") }
+    eq("○", graph.layout(forked, { unpushed = { u1 = true }, incoming = { i1 = true } })[1].segments[1][1])
   end)
 end)

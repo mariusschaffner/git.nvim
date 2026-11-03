@@ -36,6 +36,9 @@ M.links = {
   GitStatusDeleted = "Removed",
   GitStatusGraph = "Comment",
   GitStatusGraphIncoming = "DiagnosticWarn",
+  -- A diverged branch: incoming commits, and the blocked push marker between them and the unpushed ones.
+  GitStatusGraphDivergedIncoming = "DiagnosticError",
+  GitStatusGraphBlocked = "DiagnosticError",
   GitStatusHash = "Identifier",
   GitStatusHashIncoming = "DiagnosticWarn",
   GitStatusSubject = "Normal",
@@ -52,6 +55,8 @@ M.colors = {
   -- Key binding hints: the key in orange, its label and the separators in a dimmed grey.
   GitStatusHintKey = { fg = "#ff8700", ctermfg = 208 },
   GitStatusHint = { fg = "#6c6c6c", ctermfg = 242 },
+  -- Unpushed commits of a diverged branch (they cannot be pushed before pulling).
+  GitStatusGraphDivergedUnpushed = { fg = "#ff8700", ctermfg = 208 },
   GitStatusSectionStaged = green,
   GitStatusStaged = green,
   GitStatusAdded = green,

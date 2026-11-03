@@ -203,16 +203,84 @@ local function tip_run(commits, set)
   return n
 end
 
+--- When the branch has diverged: the leading commits are all unpushed or incoming, and each kind is a straight
+--- line onto the same base commit right after them. Returns both lines (newest first) and their total length.
+---@param commits GitCommit[]
+---@param unpushed table<string, true>
+---@param incoming table<string, true>
+---@return GitCommit[]?, GitCommit[]?, integer?
+local function diverged(commits, unpushed, incoming)
+  local ins, outs, n = {}, {}, 0
+  while commits[n + 1] and (unpushed[commits[n + 1].hash] or incoming[commits[n + 1].hash]) do
+    n = n + 1
+    table.insert(incoming[commits[n].hash] and ins or outs, commits[n])
+  end
+  local base = commits[n + 1]
+  if #ins == 0 or #outs == 0 or not base then
+    return nil
+  end
+  for _, line in ipairs({ ins, outs }) do
+    for i, c in ipairs(line) do
+      local below = line[i + 1] or base
+      if #c.parents ~= 1 or c.parents[1] ~= below.hash then
+        return nil
+      end
+    end
+  end
+  return ins, outs, n
+end
+
+M.BLOCKED = "⊛"
+
+--- Diverged branch: incoming and unpushed commits stacked on one side lane, incoming on top, to show that they
+--- collide. Between them a blocked push marker (pull first), from which a dotted lane leads down to the base.
+---@param commits GitCommit[]
+---@param ins GitCommit[]
+---@param outs GitCommit[]
+---@param n integer
+---@return GitGraphRow[]
+local function diverged_layout(commits, ins, outs, n)
+  local side = M.lane_hl(M.COLORS)
+  local rows = {}
+  for i, c in ipairs(ins) do
+    rows[#rows + 1] = {
+      segments = { { " ", "GitStatusGraph" }, { " ", "GitStatusGraph" }, { M.COMMIT, "GitStatusGraphDivergedIncoming" } },
+      commit = c,
+      fresh = i == 1,
+      color = M.COLORS,
+    }
+  end
+  rows[#rows + 1] =
+    { segments = { { M.BLOCKED, "GitStatusGraphBlocked" }, { "─", "GitStatusGraphBlocked" }, { "┤", side } } }
+  for _, c in ipairs(outs) do
+    rows[#rows + 1] = {
+      segments = { { "┆", "GitStatusDim" }, { " ", "GitStatusGraph" }, { M.COMMIT, "GitStatusGraphDivergedUnpushed" } },
+      commit = c,
+      fresh = false,
+      color = M.COLORS,
+    }
+  end
+  rows[#rows + 1] = { segments = { { "├", M.lane_hl(1) }, { "─", side }, { "╯", side } } }
+  local rest = lanes_layout(vim.list_slice(commits, n + 1), M.COLORS)
+  rest[1].fresh = false -- the junction above leads into it
+  return vim.list_extend(rows, rest)
+end
+
 ---@class GitGraphOpts
 ---@field unpushed table<string, true>? Unpushed commits: when they are the straight tip of the history, they
 --- are drawn on a side lane to the right that joins the pushed history at the upstream commit
----@field incoming table<string, true>? Incoming (not yet pulled) commits: drawn the same way, joining at HEAD
+---@field incoming table<string, true>? Incoming (not yet pulled) commits: drawn the same way, joining at HEAD.
+--- With both (diverged), they are stacked on one side lane, see diverged_layout.
 
 ---@param commits GitCommit[] In topological order, newest first
 ---@param opts GitGraphOpts?
 ---@return GitGraphRow[]
 function M.layout(commits, opts)
   opts = opts or {}
+  local ins, outs, count = diverged(commits, opts.unpushed or {}, opts.incoming or {})
+  if ins then
+    return diverged_layout(commits, ins, outs, count)
+  end
   local hl = "GitStatusGraphUnpushed"
   local n = tip_run(commits, opts.unpushed or {})
   if n == 0 then
