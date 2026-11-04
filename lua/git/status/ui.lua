@@ -29,6 +29,7 @@ M.ns = ns
 ---@field scroll table<string, integer> Scroll offsets of the files/graph/commit boxes
 ---@field commit GitCommitDetails? Commit(s) shown in the details box
 ---@field stash GitStashView? The stash shown alone
+---@field hover string? item_key the last redraw rendered as under the cursor
 ---@field zoom ("files"|"graph")? Box shown alone over the full height
 ---@field graph_limit integer Commits to load into the graph (a page; grows when scrolling down)
 ---@field loading_more boolean
@@ -39,8 +40,9 @@ M.ns = ns
 ---@field augroup integer
 ---@field closed boolean
 ---@field fetching_tags boolean
----@field fetch_timer uv_timer_t? Runs the spinner while `git fetch` runs
----@field fetch_frame integer?
+---@field remote_op ("fetch"|"pull"|"push")? The network operation running (one at a time)
+---@field spinner_timer uv_timer_t? Runs the spinner while `remote_op` runs
+---@field spinner_frame integer?
 ---@field watcher { stop: fun() }?
 ---@field schedule_refresh fun()
 ---@field cancel_refresh fun()
@@ -179,6 +181,13 @@ function View.new(repo, kind)
   return self
 end
 
+--- Whether an item_key is a work tree file that can be stashed (it gets the stash key hint).
+---@param key string?
+local function stashable(key)
+  local section = key and key:match("^file:(%a+):")
+  return section == "staged" or section == "unstaged" or section == "untracked"
+end
+
 function View:_autocmds()
   self.augroup = vim.api.nvim_create_augroup("git.nvim.view." .. self.buf, { clear = true })
   local au = function(event, opts)
@@ -208,6 +217,19 @@ function View:_autocmds()
         vim.api.nvim_win_set_config(self.win, float_config(self.repo))
       end
       self:redraw()
+    end,
+  })
+  -- Hints that follow the cursor (the stash key on a file).
+  au("CursorMoved", {
+    buffer = self.buf,
+    callback = function()
+      if self:valid() and vim.api.nvim_get_current_win() == self.win and self.rendered then
+        -- Only when the hint appears or goes, so moving through the graph stays cheap.
+        local key = render.item_key(self:item())
+        if key ~= self.hover and (stashable(key) or stashable(self.hover)) then
+          self:redraw()
+        end
+      end
     end,
   })
   -- The buffer always fits the window; only the boxes scroll, never the window itself.
@@ -252,7 +274,7 @@ function View:_cleanup()
   self.closed = true
   self.generation = self.generation + 1
   self.cancel_refresh()
-  self:_stop_fetch_spinner()
+  self:_stop_spinner()
   self:_close_editor()
   if self.watcher then
     self.watcher.stop()
@@ -334,6 +356,8 @@ function View:redraw(opts)
   local cursor = vim.api.nvim_win_get_cursor(self.win)
   local first_render = self.rendered == nil
   local key = opts.key or (not opts.keep_row and render.item_key(old_items[cursor[1]]) or nil)
+  -- The item the cursor will be on, for hints shown only there; CursorMoved redraws when it turns out otherwise.
+  self.hover = key or render.item_key(old_items[cursor[1]])
 
   local r = render.render(self.state, {
     width = width,
@@ -342,11 +366,14 @@ function View:redraw(opts)
     commit = self.commit,
     stash = self.stash,
     compose = self.editor and (self.editor.title or true),
-    fetching = self.fetch_frame and M.spinner()[self.fetch_frame],
+    fetching = self.remote_op == "fetch" and M.spinner()[self.spinner_frame] or nil,
+    pulling = self.remote_op == "pull" and M.spinner()[self.spinner_frame] or nil,
+    pushing = self.remote_op == "push" and M.spinner()[self.spinner_frame] or nil,
     zoom = self.zoom,
     search = self.zoom == "graph" and self.search or nil,
     scroll = self.scroll,
     focus = key,
+    cursor = self.hover,
   })
   self.rendered = r
   self.scroll = r.scroll
@@ -372,6 +399,11 @@ function View:redraw(opts)
   end
   target = target or math.min(cursor[1], #r.lines)
   pcall(vim.api.nvim_win_set_cursor, self.win, { target, target == cursor[1] and cursor[2] or 0 })
+  -- The cursor landed elsewhere than guessed (e.g. on the first file at first): draw the hints for where it is.
+  local landed = render.item_key(self:item())
+  if landed ~= self.hover and (stashable(landed) or stashable(self.hover)) then
+    return self:redraw({ key = landed })
+  end
   vim.api.nvim_win_call(self.win, function()
     vim.fn.winrestview({ topline = 1 })
   end)
@@ -607,34 +639,31 @@ function M.spinner()
   return { "|", "/", "-", "\\" }
 end
 
-function View:_stop_fetch_spinner()
-  if self.fetch_timer then
-    self.fetch_timer:stop()
-    self.fetch_timer:close()
-    self.fetch_timer = nil
+function View:_stop_spinner()
+  if self.spinner_timer then
+    self.spinner_timer:stop()
+    self.spinner_timer:close()
+    self.spinner_timer = nil
   end
-  self.fetch_frame = nil
+  self.spinner_frame = nil
+  self.remote_op = nil
 end
 
---- `git fetch` the current branch's remote (or the default one); a spinner shows in the Branches box meanwhile.
+--- Run a network git command (`op` names it) with a spinner in the Branches box, then refresh.
+---@param op "fetch"|"pull"|"push"
+---@param args string[]
 ---@param cb fun(ok: boolean)?
-function View:fetch(cb)
-  if self.fetch_timer then
-    return
-  end
-  if not self.state or #self.state.remotes == 0 then
-    util.notify("No remote to fetch from")
-    return
-  end
+function View:_remote(op, args, cb)
   local uv = vim.uv or vim.loop
-  self.fetch_frame = 1
-  self.fetch_timer = uv.new_timer()
-  self.fetch_timer:start(
+  self.remote_op = op
+  self.spinner_frame = 1
+  self.spinner_timer = uv.new_timer()
+  self.spinner_timer:start(
     100,
     100,
     vim.schedule_wrap(function()
-      if self.fetch_frame and self:valid() then
-        self.fetch_frame = self.fetch_frame % #M.spinner() + 1
+      if self.spinner_frame and self:valid() then
+        self.spinner_frame = self.spinner_frame % #M.spinner() + 1
         self:redraw({ keep_row = true })
       end
     end)
@@ -642,8 +671,8 @@ function View:fetch(cb)
   self:redraw({ keep_row = true })
   local runner = require("git.core.runner")
   local timeout = config.options.status.fetch_timeout
-  runner.run({ "fetch", "--quiet" }, { cwd = self.repo.root, write = true, timeout = timeout }, function(res)
-    self:_stop_fetch_spinner()
+  runner.run(args, { cwd = self.repo.root, write = true, timeout = timeout }, function(res)
+    self:_stop_spinner()
     if self.closed then
       return
     end
@@ -656,6 +685,125 @@ function View:fetch(cb)
       end
     end)
   end)
+end
+
+--- `git fetch` the current branch's remote (or the default one); a spinner shows in the Branches box meanwhile.
+---@param cb fun(ok: boolean)?
+function View:fetch(cb)
+  if self.remote_op then
+    return
+  end
+  if not self.state or #self.state.remotes == 0 then
+    util.notify("No remote to fetch from")
+    return
+  end
+  self:_remote("fetch", { "fetch", "--quiet" }, cb)
+end
+
+--- `git pull` the upstream's commits that are not pulled yet; a spinner shows on the Remote row meanwhile. Only
+--- behind: a fast-forward (`--ff-only`, never a merge commit). Diverged: a plain `git pull`, which merges or
+--- rebases as the user's `pull.rebase` setting says (git asks for that setting when there is none).
+---@param cb fun(ok: boolean)?
+function View:pull(cb)
+  if self.remote_op then
+    return
+  end
+  local b = self.state and self.state.branch
+  if not b or b.detached or not b.upstream or b.gone then
+    util.notify("No upstream to pull from")
+    return
+  elseif b.behind == 0 then
+    util.notify("Nothing to pull (fetch first to see new commits)")
+    return
+  end
+  local args = { "pull", "--quiet" }
+  if b.ahead == 0 then
+    args[#args + 1] = "--ff-only"
+  end
+  self:_remote("pull", args, cb)
+end
+
+--- Remote that `push --set-upstream` pushes to: the upstream's remote, else "origin", else the first remote.
+---@return string?
+function View:push_remote()
+  local state = self.state
+  local up = state.branch.upstream
+  if up then
+    for _, r in ipairs(state.remotes) do
+      if vim.startswith(up, r .. "/") then
+        return r
+      end
+    end
+  end
+  return vim.tbl_contains(state.remotes, "origin") and "origin" or state.remotes[1]
+end
+
+--- `git push` the current branch to its upstream; refused for a branch without upstream, and when the upstream has
+--- commits that are not pulled yet (git would reject the push). Options:
+--- - upstream: `--set-upstream <remote> HEAD`, which publishes the branch under its name and tracks it from then on;
+--- - force: `--force-with-lease`, which overwrites the remote branch unless it moved since the last fetch (also
+---   when it has commits not pulled yet). Asks first on a protected branch.
+--- A spinner shows on the HEAD row meanwhile.
+---@param opts { upstream: boolean?, force: boolean? }?
+---@param cb fun(ok: boolean)?
+function View:push(opts, cb)
+  opts = opts or {}
+  if self.remote_op then
+    return
+  end
+  local state = self.state
+  local b = state and state.branch
+  if not b or b.detached or b.unborn then
+    util.notify("Check out a branch with commits to push")
+    return
+  elseif #state.remotes == 0 then
+    util.notify("No remote to push to")
+    return
+  end
+  --- " (toggle with <key>)" for a push menu option, when mapped.
+  local function toggle_hint(action)
+    local key = config.key(action)
+    return key and (" (toggle with " .. key .. ")") or ""
+  end
+  if not opts.upstream then
+    if not b.upstream or b.gone then
+      local msg = ("%s has no upstream; push with --set-upstream%s"):format(b.head, toggle_hint("push_upstream"))
+      util.notify(msg, vim.log.levels.WARN)
+      return
+    elseif b.behind > 0 and not opts.force then
+      local msg = ("%s has %d commit(s) you do not have; pull first, or push --force-with-lease%s"):format(
+        b.upstream,
+        b.behind,
+        toggle_hint("push_force")
+      )
+      util.notify(msg, vim.log.levels.WARN)
+      return
+    elseif b.ahead == 0 and b.behind == 0 then
+      util.notify("Nothing to push")
+      return
+    end
+  end
+  if
+    opts.force
+    and vim.tbl_contains(config.options.status.protected_branches, b.head)
+    and vim.fn.confirm(
+        ("%s is protected. Force push it (--force-with-lease)?"):format(b.head),
+        "&Force push\n&Cancel",
+        2,
+        "Warning"
+      )
+      ~= 1
+  then
+    return
+  end
+  local args = { "push", "--quiet" }
+  if opts.force then
+    args[#args + 1] = "--force-with-lease"
+  end
+  if opts.upstream then
+    vim.list_extend(args, { "--set-upstream", self:push_remote(), "HEAD" })
+  end
+  self:_remote("push", args, cb)
 end
 
 --- Show a commit's details in a box below the graph (in place of the files); again on the same commit hides it.

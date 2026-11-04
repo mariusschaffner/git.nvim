@@ -24,7 +24,10 @@ current directory) in up to five panels:
              shown when there is a tag
   Stashes    the most recent stash entries
   Files      conflicted, staged, unstaged and untracked files with +/- line
-             counts; diffs can be expanded inline
+             counts; diffs can be expanded inline: each hunk under a
+             `┄┄ line N` separator, with old / new line numbers, added and
+             removed rows tinted and the changed words of a modified line
+             marked stronger
   Graph      a lane-based graph of the whole history (loaded page by page as
              you scroll), including the upstream's when it is ahead;
              unpushed commits are marked `!`, incoming (not yet pulled)
@@ -56,8 +59,9 @@ view. `<CR>` on a commit shows only the Graph (30%) and a Commit box with the
 commit (`git show`, 70%) below it; `<CR>` on the same commit or `q`/`<Esc>`
 closes it again. `<CR>` on a stash shows only a Stash box, listing the
 stash's files like the Files box (Changes, and Untracked when it has
-untracked files) with their +/- counts; `<Tab>` toggles their diffs inline
-and `q`/`<Esc>` goes back.
+untracked files) with their +/- counts, below the stash's subject and a
+summary of its files and lines; `<Tab>` toggles their diffs inline (shown
+like the Files box's) and `q`/`<Esc>` goes back.
 
 ==============================================================================
 2. REQUIREMENTS                                         *git-requirements*
@@ -114,12 +118,16 @@ Buffer-local mappings in the status view (press `?` for this list):
             the top of the graph, `q` back to the commit. On several commits
             selected in Visual mode: show them combined (each header, then
             one diff from the oldest one's parent to the newest).
-  S         Stash the file under the cursor, the files of a section (on
-            its header) or the selected files in Visual mode; anywhere else
-            all local changes. Untracked files are included. Asks for a
-            message first (empty: git's "WIP on <branch>").
-  P A D     Pop / apply / drop the stash under the cursor, or the one shown
-            in the Stash box (drop asks first).
+  S         Stash menu: a popup lists the next keys that apply here:
+              S s   stash the file under the cursor, the files of a section
+                    (on its header) or the selected files in Visual mode;
+                    anywhere else all local changes. Untracked files are
+                    included. Asks for a message first (empty: git's
+                    "WIP on <branch>"). Not offered in the Stash box.
+              S p   pop, `S a` apply, `S d` drop (asks first) the stash
+                    under the cursor or the one shown in the Stash box;
+                    only offered there
+            The file under the cursor shows the key as a hint.
   c         Commit menu: a popup lists the next key, which picks
               c c   commit the staged changes: the files box turns into an
                     editable commit message box (filetype `gitcommit`)
@@ -132,6 +140,24 @@ Buffer-local mappings in the status view (press `?` for this list):
             last commit is amended; for an older one it and the commits
             above it are recreated. Staged and unstaged changes stay as
             they are.
+  p         Push menu: a popup lists the push options; their keys
+            toggle them (`[x]` / `[ ]`, the popup shows again), `p` pushes
+            with the options that are on, any other key closes the menu:
+              u     `--set-upstream <remote> HEAD`: publish the branch
+                    under its name and track it from then on (the remote
+                    of its upstream, else `origin`, else the first)
+              f     `--force-with-lease`: overwrite the remote branch
+                    unless it moved since the last fetch; asks first on
+                    a protected branch
+              p     push. Without `u` the branch needs an upstream, and
+                    without `f` it must have nothing to pull first.
+            A spinner shows on the HEAD row meanwhile. The HEAD row hints
+            the key while the branch has commits to push or no upstream.
+  P         Pull (`git pull`) the fetched commits not pulled yet; the
+            Remote row hints the key while there are some, and shows a
+            spinner meanwhile. Only behind: a fast-forward (`--ff-only`).
+            Diverged: merged or rebased as your `pull.rebase` setting
+            says.
   f         Fetch (`git fetch`) the branch's remote; a spinner shows in the
             Branches box meanwhile, then incoming commits show in the graph.
   z         In the Files or Graph box: show only that box, over the whole
@@ -193,7 +219,7 @@ Defaults: >lua
         timeout = 5000,
         cache_ttl = 60,
       },
-      fetch_timeout = 60000, -- ms, for `git fetch` (network)
+      fetch_timeout = 60000, -- ms, for `git fetch` / `git push` (network)
       auto_refresh = true, -- refresh on index/HEAD changes, writes, focus
       refresh_debounce = 150,
       hints = true,        -- show key and git command hints in the panels
@@ -203,16 +229,22 @@ Defaults: >lua
         discard = "X",
         toggle_diff = "<Tab>",
         open = "<CR>",
-        stash_pop = "P",
-        stash_apply = "A",
-        stash_drop = "D",
-        stash_push = "S",      -- stash files / all changes
+        stash = "S",           -- stash menu; the next key picks:
+        stash_push = "s",      --   stash files / all changes
+        stash_pop = "p",       --   pop / apply / drop the stash under
+        stash_apply = "a",     --   the cursor
+        stash_drop = "d",
         commit = "c",          -- commit menu; the next key picks:
         commit_create = "c",   --   commit the staged changes
         commit_amend = "a",    --   amend the last commit
         revert = "r",
         reword = "R",          -- change an unpushed commit's message
         fetch = "f",
+        pull = "P",
+        push = "p",            -- push menu; in it:
+        push_current = "p",    --   push with the options that are on
+        push_upstream = "u",   --   toggle --set-upstream <remote> HEAD
+        push_force = "f",      --   toggle --force-with-lease
         zoom = "z",
         search = "/",          -- in the zoomed graph
         search_next = "n",
@@ -274,11 +306,22 @@ with |nvim_set_hl()| are left alone.
   GitStatusHashIncoming     incoming commit hash   -> DiagnosticWarn
   GitStatusIncomingLine     incoming commit row    amber background
   GitStatusDeco             ", " between ref names grey (#8a8a8a)
-  GitStatusHintKey          hint keys, fetching…   orange (#ff8700)
+  GitStatusHintKey          hint keys, fetching…,  orange (#ff8700)
+                            pulling…, pushing…
   GitStatusHint             key hint labels        dim grey (#6c6c6c)
   GitStatusSearch           graph search matches   copy of Search
   GitStatusSubject          commit subject         -> Normal
-  GitStatusDiff{Add,Delete,Hunk,Header,Context}    inline diff lines
+  GitStatusDiffAdd          added line text        green (*)
+  GitStatusDiffDelete       removed line text      -> Removed
+  GitStatusDiffContext      unchanged line text    -> Normal
+  GitStatusDiffAddLine      added row tint         dim green background
+  GitStatusDiffDeleteLine   removed row tint       dim red background
+  GitStatusDiffAddText      changed words, added   stronger green background
+  GitStatusDiffDeleteText   changed words, removed stronger red background
+  GitStatusDiffLineNr       diff line numbers      -> LineNr
+  GitStatusDiffHunk         hunk separators ┄┄     grey (#808080)
+  GitStatusDiffHeader       notes (new file mode,  -> Comment
+                            binary, no newline…)
 
 (*) A muted green (#87af5f, #5f8700 on a light background) instead of a
 copy of Added, which is too bright in many colorschemes. Also used by

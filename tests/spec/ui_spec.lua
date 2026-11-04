@@ -203,13 +203,13 @@ describe("ui", function()
       view:toggle_diff(f, nil, done)
     end)
     local text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n")
-    matches("%+two", text)
+    matches("%+ two", text)
     H.write(dir, "tracked.txt", { "three" })
     H.await(function(done)
       view:refresh(done)
     end)
     text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n")
-    matches("%+three", text)
+    matches("%+ three", text)
     H.await(function(done)
       view:toggle_diff(f, nil, done)
     end)
@@ -272,6 +272,69 @@ describe("ui", function()
     eq({ "stashed 2" }, vim.fn.readfile(dir .. "/tracked.txt"))
   end)
 
+  it("drives stashing through the S menu, listing only the entries that apply", function()
+    H.write(dir, "tracked.txt", { "stashed" })
+    H.git(dir, { "stash", "push", "--quiet" })
+    H.write(dir, "tracked.txt", { "changed" })
+    local view = open(dir, "float")
+    local popup = actions.popup
+    local shown
+    actions.popup = function(entries, title, o)
+      local win = popup(entries, title, o)
+      shown = { title = title, lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false) }
+      return win
+    end
+    local function press(keys)
+      shown = nil
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
+    end
+
+    -- on a file: only stashing it
+    eq("file", view:item().kind)
+    press("S<Esc>")
+    eq(" Stash ", shown.title)
+    eq(1, #shown.lines)
+    matches("^ s  .*Stash 1 file $", shown.lines[1])
+
+    -- on a stash entry: stash all changes, or pop / apply / drop that stash
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "stash"
+    end)), 0 })
+    press("S<Esc>")
+    eq(4, #shown.lines)
+    matches("^ s  .*Stash all changes $", shown.lines[1])
+    matches("^ p  .*Pop stash@{0} $", shown.lines[2])
+    matches("^ a  .*Apply stash@{0} $", shown.lines[3])
+    matches("^ d  .*Drop stash@{0} $", shown.lines[4])
+    eq({ "changed" }, vim.fn.readfile(dir .. "/tracked.txt"), "<Esc> picks nothing")
+
+    -- S s on a file stashes it (after asking for a message)
+    local input = vim.ui.input
+    vim.ui.input = function(_, cb)
+      cb("from menu")
+    end
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "file"
+    end)), 0 })
+    settle(view, function()
+      press("Ss")
+    end)
+    vim.ui.input = input
+    eq(2, #view.state.stashes)
+    matches("from menu", view.state.stashes[1].subject)
+
+    -- S p on the newest stash entry pops it
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "stash" and it.stash.ref == "stash@{0}"
+    end)), 0 })
+    settle(view, function()
+      press("Sp")
+    end)
+    actions.popup = popup
+    eq(1, #view.state.stashes)
+    eq({ "changed" }, vim.fn.readfile(dir .. "/tracked.txt"))
+  end)
+
   it("stashes the file under the cursor with S, or all changes elsewhere", function()
     H.write(dir, "tracked.txt", { "changed" })
     H.write(dir, "new.txt", { "new" })
@@ -310,6 +373,37 @@ describe("ui", function()
     eq(0, vim.fn.filereadable(dir .. "/new.txt"))
   end)
 
+  it("moves the stash key hint along with the cursor over the files", function()
+    H.write(dir, "tracked.txt", { "changed" })
+    H.write(dir, "new.txt", { "new" })
+    local view = open(dir, "float")
+    local function hinted()
+      local rows = {}
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false)) do
+        if l:find("S stash", 1, true) then
+          rows[#rows + 1] = view.rendered.items[i + 0] and view.rendered.items[i].file.path
+        end
+      end
+      return rows
+    end
+    eq("tracked.txt", view:item().file.path, "starts on the first file")
+    eq({ "tracked.txt" }, hinted())
+    -- down past the blank line and the Untracked header to new.txt
+    local target = find_line(view, function(it)
+      return it.kind == "file" and it.file.path == "new.txt"
+    end)
+    local lnum = vim.api.nvim_win_get_cursor(view.win)[1]
+    vim.api.nvim_feedkeys(tostring(target - lnum) .. "j", "x", false)
+    vim.cmd("doautocmd <nomodeline> CursorMoved")
+    eq("new.txt", view:item().file.path)
+    eq({ "new.txt" }, hinted())
+    -- on the section header: no hint at all
+    vim.api.nvim_feedkeys("k", "x", false)
+    vim.cmd("doautocmd <nomodeline> CursorMoved")
+    eq("section", view:item().kind)
+    eq({}, hinted())
+  end)
+
   it("shows a stash's files like the Files box, with inline diffs, and goes back with q", function()
     H.write(dir, "tracked.txt", { "one", "two" })
     H.write(dir, "new.txt", { "fresh" })
@@ -325,6 +419,8 @@ describe("ui", function()
     matches("Stash", text)
     matches("Changes %(1%)", text)
     matches("Untracked %(1%)", text)
+    matches("stash@{0} · On main: wip", text)
+    matches("2 files · %+2 %-0 | S pop / apply / drop · q back", text)
     ok(not text:find("Branches"), "only the stash box is shown")
     eq("tracked.txt", view:item().file.path, "cursor on the first file")
 
@@ -338,7 +434,10 @@ describe("ui", function()
     H.await(function(done)
       view:toggle_diff(f, true, done)
     end)
-    matches("%+fresh", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+    text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n")
+    matches("new file mode 100644", text)
+    matches("│       1 │ %+ fresh", text)
+    matches("│     1 1 │   one", text)
     -- stage / discard leave a stash's files alone
     actions.discard(view, { view:item() })
     eq({ "one" }, vim.fn.readfile(dir .. "/tracked.txt"))
@@ -348,7 +447,7 @@ describe("ui", function()
       view:refresh(done)
     end)
     ok(view.stash, "still shown after a refresh")
-    matches("%+fresh", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
+    matches("%+ fresh", table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n"))
 
     vim.api.nvim_feedkeys("q", "x", false)
     eq(nil, view.stash)
@@ -632,7 +731,8 @@ describe("ui", function()
     matches("Help", text)
     ok(not text:find("Close"), "close is not listed")
     ok(not text:find("Revert"), "no graph keys in files help")
-    ok(not text:find("stash"), "no stash keys in files help")
+    ok(not text:find("Pop stash"), "no stash entry keys in files help")
+    matches("S +Stash menu %(stash file%(s%)", text)
 
     text = help_at(function(it)
       return it.kind == "commit"
@@ -794,10 +894,10 @@ describe("ui", function()
     local view = open(dir, "float")
     eq(0, view.state.branch.behind)
     vim.api.nvim_feedkeys("f", "x", false)
-    ok(view.fetch_timer, "spinner running")
+    ok(view.spinner_timer, "spinner running")
     matches("fetching", view.rendered.lines[2])
     ok(vim.wait(10000, function()
-      return view.fetch_timer == nil and view.state.branch.behind == 1
+      return view.spinner_timer == nil and view.state.branch.behind == 1
     end, 10), "fetched")
     ok(not view.rendered.lines[2]:find("fetching"), "spinner gone")
     eq("their change", view.state.graph[1].subject)
@@ -805,6 +905,155 @@ describe("ui", function()
     local text = table.concat(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false), "\n")
     matches("○ ! %x+ their change", text)
     matches("├─╯", text)
+
+    -- the fetched commit can be pulled now, from the same row
+    matches("| f fetch · P pull", view.rendered.lines[2])
+    vim.api.nvim_feedkeys("P", "x", false)
+    ok(view.spinner_timer, "spinner running")
+    matches("pulling", view.rendered.lines[2])
+    ok(vim.wait(10000, function()
+      return view.spinner_timer == nil and view.state.branch.behind == 0
+    end, 10), "pulled")
+    ok(not view.rendered.lines[2]:find("pulling"), "spinner gone")
+    ok(not view.rendered.lines[2]:find("P pull"), "nothing left to pull: no hint")
+    eq("their change", view.state.graph[1].subject)
+    eq(nil, view.state.incoming[view.state.graph[1].hash], "no longer incoming")
+    eq(1, vim.fn.filereadable(dir .. "/theirs.txt"))
+    H.rm(remote)
+    H.rm(other)
+  end)
+
+  it("pushes from the p menu with toggled options, a spinner on the HEAD row meanwhile", function()
+    local remote = H.repo()
+    H.git(remote, { "config", "receive.denyCurrentBranch", "ignore" })
+    H.git(dir, { "remote", "add", "origin", remote })
+    H.git(dir, { "push", "--quiet", "-u", "origin", "main" })
+    H.write(dir, "mine.txt", "x")
+    H.commit(dir, "my change")
+
+    local view = open(dir, "float")
+    eq(1, view.state.branch.ahead)
+    local function head_row()
+      return view.rendered.lines[3]
+    end
+    matches("main.* | p push", head_row())
+    -- p opens the push menu; u / f toggle its options (shown again each time), the second p pushes
+    local popup = actions.popup
+    local shown = {}
+    actions.popup = function(entries, title, o)
+      local win = popup(entries, title, o)
+      shown[#shown + 1] = { title = title, lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false) }
+      return win
+    end
+    vim.api.nvim_feedkeys("pffp", "x", false)
+    actions.popup = popup
+    eq(3, #shown, "shown again after each toggle")
+    eq(" Push ", shown[1].title)
+    matches("^ p  .*Push to origin/main $", shown[1].lines[1])
+    matches("^ u  .*%[ %].*%-%-set%-upstream origin main $", shown[1].lines[2])
+    matches("^ f  .*%[ %].*%-%-force%-with%-lease $", shown[1].lines[3])
+    matches("%[x%].*%-%-force%-with%-lease", shown[2].lines[3])
+    matches("%[ %].*%-%-force%-with%-lease", shown[3].lines[3])
+    ok(view.spinner_timer, "spinner running")
+    matches("pushing", head_row())
+    ok(vim.wait(10000, function()
+      return view.spinner_timer == nil and view.state.branch.ahead == 0
+    end, 10), "pushed")
+    ok(not head_row():find("pushing"), "spinner gone")
+    ok(not head_row():find("p push"), "nothing left to push: no hint")
+    eq(vim.trim(H.git(dir, { "rev-parse", "HEAD" })), vim.trim(H.git(remote, { "rev-parse", "main" })))
+
+    -- a new branch: a plain push is refused, p u p publishes it to origin and it tracks it from then on
+    H.git(dir, { "checkout", "--quiet", "-b", "topic" })
+    H.await(function(done)
+      view:refresh(done)
+    end)
+    matches("topic | p push", head_row())
+    local notified
+    local orig = vim.notify
+    vim.notify = function(msg)
+      notified = msg
+    end
+    view:push()
+    vim.notify = orig
+    matches("no upstream; push with %-%-set%-upstream %(toggle with u%)", notified)
+    eq(nil, view.spinner_timer)
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("pu<Esc>", true, false, true), "x", false)
+    eq(nil, view.spinner_timer, "toggling alone does not push")
+    vim.api.nvim_feedkeys("pup", "x", false)
+    ok(vim.wait(10000, function()
+      return view.spinner_timer == nil and view.state.branch.upstream == "origin/topic"
+    end, 10), "published with --set-upstream")
+
+    -- with commits to pull first, a plain push is refused without asking git; --force-with-lease overwrites them
+    local other = H.repo()
+    H.git(other, { "pull", "--quiet", remote, "main" })
+    H.write(other, "theirs.txt", "y")
+    H.commit(other, "their change")
+    H.git(other, { "push", "--quiet", remote, "HEAD:main" })
+    H.git(dir, { "checkout", "--quiet", "main" })
+    H.write(dir, "mine2.txt", "z")
+    H.commit(dir, "another change")
+    H.git(dir, { "fetch", "--quiet" })
+    H.await(function(done)
+      view:refresh(done)
+    end)
+    matches("main.* | p push", head_row())
+    vim.notify = function(msg)
+      notified = msg
+    end
+    view:push()
+    vim.notify = orig
+    matches("pull first, or push %-%-force%-with%-lease %(toggle with f%)", notified)
+    eq(nil, view.spinner_timer)
+    -- main is protected: a force push asks first
+    local confirm = vim.fn.confirm
+    local asked
+    vim.fn.confirm = function(msg)
+      asked = msg
+      return 1
+    end
+    H.await(function(done)
+      view:push({ force = true }, done)
+    end)
+    vim.fn.confirm = confirm
+    matches("main is protected", asked)
+    eq(0, view.state.branch.behind)
+    eq(0, view.state.branch.ahead)
+    eq(vim.trim(H.git(dir, { "rev-parse", "HEAD" })), vim.trim(H.git(remote, { "rev-parse", "main" })))
+    H.rm(remote)
+    H.rm(other)
+  end)
+
+  it("pulls a diverged branch as pull.rebase says, and offers no pull with nothing fetched", function()
+    local remote = H.repo()
+    H.git(remote, { "config", "receive.denyCurrentBranch", "ignore" })
+    H.git(dir, { "remote", "add", "origin", remote })
+    H.git(dir, { "push", "--quiet", "-u", "origin", "main" })
+    H.git(dir, { "config", "pull.rebase", "true" })
+    local view = open(dir, "float")
+    ok(not view.rendered.lines[2]:find("P pull"), "nothing to pull")
+
+    local other = H.repo()
+    H.git(other, { "pull", "--quiet", remote, "main" })
+    H.write(other, "theirs.txt", "x")
+    H.commit(other, "their change")
+    H.git(other, { "push", "--quiet", remote, "HEAD:main" })
+    H.write(dir, "mine.txt", "y")
+    H.commit(dir, "my change")
+    H.git(dir, { "fetch", "--quiet" })
+    H.await(function(done)
+      view:refresh(done)
+    end)
+    eq({ 1, 1 }, { view.state.branch.ahead, view.state.branch.behind })
+    matches("P pull", view.rendered.lines[2])
+    H.await(function(done)
+      view:pull(done)
+    end)
+    -- rebased: my commit on top of theirs, nothing behind any more
+    eq({ 1, 0 }, { view.state.branch.ahead, view.state.branch.behind })
+    eq("my change", view.state.graph[1].subject)
+    eq("their change", view.state.graph[2].subject)
     H.rm(remote)
     H.rm(other)
   end)

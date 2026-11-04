@@ -317,21 +317,19 @@ function M.stash_push(view, items, message)
   vim.ui.input({ prompt = prompt }, go)
 end
 
---- The commit menu: a popup lists the follow-up keys (commit / amend) and the next key picks one.
+--- A menu popup listing follow-up keys; waits for the next key and runs the entry it picks (none on others).
 ---@param view GitView
-function M.commit(view)
-  local ic = config.icons()
+---@param title string
+---@param list { [1]: string, [2]: string, [3]: fun(view: GitView) }[] { action, label, handler }
+local function menu(view, title, list)
   local entries = {}
-  for _, e in ipairs({
-    { "commit_create", ic.commit .. "Commit staged changes", M.create },
-    { "commit_amend", ic.amend .. "Amend last commit", M.amend },
-  }) do
+  for _, e in ipairs(list) do
     local key = config.key(e[1])
     if key then
       entries[#entries + 1] = { key, e[2], fn = e[3] }
     end
   end
-  local win = M.popup(entries, " Commit ", { enter = false })
+  local win = M.popup(entries, title, { enter = false })
   vim.cmd("redraw")
   local ok, char = pcall(vim.fn.getcharstr)
   pcall(vim.api.nvim_win_close, win, true)
@@ -341,6 +339,125 @@ function M.commit(view)
   for _, e in ipairs(entries) do
     if char == vim.api.nvim_replace_termcodes(e[1], true, false, true) then
       e.fn(view)
+      return
+    end
+  end
+end
+
+--- The stash menu: stash the files under the cursor / selected (elsewhere all changes), and pop / apply / drop the
+--- stash under the cursor or shown in the Stash box. Only the entries that apply are listed.
+---@param view GitView
+---@param items GitItem[] The items under the cursor / selected
+function M.stash_menu(view, items)
+  local state = view.state
+  if not state then
+    return
+  end
+  local ic = config.icons()
+  local item = view:item()
+  local stash = item and item.kind == "stash" and item.stash or (view.stash and view.stash.stash)
+  local list = {}
+  local fs = state.files
+  -- In the Stash box the cursor is on a stash's files: only pop / apply / drop make sense there.
+  if not view.stash and #fs.staged + #fs.unstaged + #fs.untracked + #fs.conflicted > 0 then
+    local g = by_section(files_of(view, items))
+    local n = #g.staged + #g.unstaged + #g.untracked
+    local label = n == 0 and "Stash all changes" or ("Stash %d file%s"):format(n, n == 1 and "" or "s")
+    list[#list + 1] = {
+      "stash_push",
+      ic.stash .. label,
+      function(v)
+        M.stash_push(v, items)
+      end,
+    }
+  end
+  if stash then
+    for _, op in ipairs({ "pop", "apply", "drop" }) do
+      list[#list + 1] = {
+        "stash_" .. op,
+        ic["stash_" .. op] .. op:sub(1, 1):upper() .. op:sub(2) .. " " .. stash.ref,
+        function(v)
+          M.stash(v, op)
+        end,
+      }
+    end
+  end
+  if #list == 0 then
+    util.notify("No local changes to stash; move the cursor to a stash entry to pop, apply or drop it")
+    return
+  end
+  menu(view, " Stash ", list)
+end
+
+--- The commit menu: a popup lists the follow-up keys (commit / amend) and the next key picks one.
+---@param view GitView
+function M.commit(view)
+  local ic = config.icons()
+  menu(view, " Commit ", {
+    { "commit_create", ic.commit .. "Commit staged changes", M.create },
+    { "commit_amend", ic.amend .. "Amend last commit", M.amend },
+  })
+end
+
+--- Whether the typed `char` is the key `lhs`.
+---@param char string
+---@param lhs string?
+local function pressed(char, lhs)
+  return lhs ~= nil and char == vim.api.nvim_replace_termcodes(lhs, true, false, true)
+end
+
+--- The push menu: a popup lists the push options, which their keys toggle on and off; the push key pushes with
+--- the options that are on, any other key closes the menu.
+---@param view GitView
+---@param flags { upstream: boolean?, force: boolean? }? Options on from the start
+function M.push(view, flags)
+  local state = view.state
+  if not state then
+    return
+  end
+  local ic = config.icons()
+  local b = state.branch
+  flags = vim.deepcopy(flags or {})
+  local remote = #state.remotes > 0 and view:push_remote() or "<remote>"
+  local head = b.detached and "HEAD" or b.head
+  local options = {
+    { "push_upstream", "upstream", ic.upstream .. "--set-upstream " .. remote .. " " .. head },
+    { "push_force", "force", ic.force .. "--force-with-lease" },
+  }
+  while true do
+    local target = flags.upstream and (remote .. "/" .. head)
+      or (b.upstream and not b.gone and b.upstream)
+      or nil
+    local entries = {}
+    local push_key = config.key("push_current")
+    if push_key then
+      entries[1] = { push_key, ic.push .. "Push" .. (target and (" to " .. target) or " (no upstream)") }
+    end
+    for _, o in ipairs(options) do
+      local key = config.key(o[1])
+      if key then
+        entries[#entries + 1] = { key, (flags[o[2]] and "[x] " or "[ ] ") .. o[3] }
+      end
+    end
+    local win = M.popup(entries, " Push ", { enter = false })
+    vim.cmd("redraw")
+    local ok, char = pcall(vim.fn.getcharstr)
+    pcall(vim.api.nvim_win_close, win, true)
+    if not ok then
+      return
+    end
+    if pressed(char, push_key) then
+      view:push(flags)
+      return
+    end
+    local toggled = false
+    for _, o in ipairs(options) do
+      if pressed(char, config.key(o[1])) then
+        flags[o[2]] = not flags[o[2]]
+        toggled = true
+      end
+    end
+    if not toggled then
       return
     end
   end
@@ -660,14 +777,13 @@ M.descriptions = {
   discard = "Discard",
   toggle_diff = "Toggle diff",
   open = "Open",
-  stash_pop = "Pop stash",
-  stash_apply = "Apply stash",
-  stash_drop = "Drop stash",
-  stash_push = "Stash changes",
+  stash = "Stash menu (stash / pop / apply / drop)",
   commit = "Commit / amend",
   revert = "Revert commit",
   reword = "Reword unpushed commit",
   fetch = "Fetch",
+  pull = "Pull",
+  push = "Push (menu: options, then push)",
   zoom = "Zoom box",
   search = "Search (zoomed)",
   search_next = "Next match",
@@ -686,13 +802,12 @@ M.order = {
   "toggle_diff",
   "commit",
   "open",
-  "stash_push",
-  "stash_pop",
-  "stash_apply",
-  "stash_drop",
+  "stash",
   "revert",
   "reword",
   "fetch",
+  "pull",
+  "push",
   "zoom",
   "search",
   "search_next",
@@ -704,11 +819,11 @@ M.order = {
 
 -- Actions listed in the help per box (see `GitRendered.regions`), followed by `help`.
 M.contexts = {
-  branches = { "fetch" },
+  branches = { "fetch", "pull", "push" },
   tags = {},
-  stashes = { "stash_push", "stash_pop", "stash_apply", "stash_drop", "open" },
-  files = { "stage", "unstage", "discard", "toggle_diff", "stash_push", "commit", "open", "zoom" },
-  stash = { "toggle_diff", "open", "stash_pop", "stash_apply", "stash_drop", "close" },
+  stashes = { "stash", "open" },
+  files = { "stage", "unstage", "discard", "toggle_diff", "stash", "commit", "open", "zoom" },
+  stash = { "toggle_diff", "open", "stash", "close" },
   graph = { "open", "revert", "reword", "zoom", "search", "search_next", "search_prev" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
@@ -716,9 +831,9 @@ M.contexts = {
 
 -- Descriptions that read better than `M.descriptions` in a given box.
 M.context_descriptions = {
-  stashes = { open = "Show stash", stash_push = "Stash all changes" },
-  files = { open = "Open file", stash_push = "Stash file(s) (elsewhere: all)" },
-  stash = { open = "Open file", close = "Back" },
+  stashes = { open = "Show stash", stash = "Stash menu (pop / apply / drop this stash)" },
+  files = { open = "Open file", stash = "Stash menu (stash file(s), elsewhere all)" },
+  stash = { open = "Open file", stash = "Stash menu (pop / apply / drop)", close = "Back" },
   graph = { open = "Toggle details (visual: combined)" },
   compose = { commit_submit = "Commit (or :w)" },
 }
@@ -886,28 +1001,10 @@ function M.attach(view)
         M.open_items(view, target_items(view))
       end,
     },
-    stash_pop = {
-      "n",
-      function()
-        M.stash(view, "pop")
-      end,
-    },
-    stash_apply = {
-      "n",
-      function()
-        M.stash(view, "apply")
-      end,
-    },
-    stash_drop = {
-      "n",
-      function()
-        M.stash(view, "drop")
-      end,
-    },
-    stash_push = {
+    stash = {
       { "n", "x" },
       function()
-        M.stash_push(view, target_items(view))
+        M.stash_menu(view, target_items(view))
       end,
     },
     commit = {
@@ -932,6 +1029,18 @@ function M.attach(view)
       "n",
       function()
         view:fetch()
+      end,
+    },
+    pull = {
+      "n",
+      function()
+        view:pull()
+      end,
+    },
+    push = {
+      "n",
+      function()
+        M.push(view)
       end,
     },
     zoom = {

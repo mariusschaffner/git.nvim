@@ -133,8 +133,36 @@ describe("render", function()
         found[it.diff_line] = r.lines[lnum]
       end
     end
-    matches("%+new", found[4])
-    matches("%-old", found[3])
+    eq(nil, found[1], "file header left out")
+    matches("┄┄ line 1 ┄.*┄ │$", found[2])
+    matches("│     1   │ %- old ", found[3])
+    matches("│       1 │ %+ new ", found[4])
+    matches("│     2 2 │   ctx ", found[5])
+    eq(80, util.width(found[2]), "separator fills the row exactly")
+  end)
+
+  it("tints added / removed diff rows and marks the changed words", function()
+    local f = { path = "x.lua", code = "M", section = "unstaged" }
+    local diff = { "@@ -1 +1 @@ function M.x()", "-local a = old()", "+local a = new()" }
+    local r =
+      render.render(state({ files = { unstaged = { f } } }), { width = 80, expanded = { ["unstaged:x.lua"] = diff } })
+    matches("┄┄ line 1 · function M%.x%(%) ┄", text(r))
+    local marks = {}
+    for lnum, it in pairs(r.items) do
+      if it.kind == "diff" then
+        marks[it.diff_line] = {}
+        for _, m in ipairs(r.marks) do
+          if m.row == lnum - 1 then
+            marks[it.diff_line][m.hl] = r.lines[lnum]:sub(m.col + 1, m.end_col)
+          end
+        end
+      end
+    end
+    eq("old", marks[2].GitStatusDiffDeleteText)
+    eq("new", marks[3].GitStatusDiffAddText)
+    ok(marks[2].GitStatusDiffDeleteLine, "removed row tinted")
+    ok(marks[3].GitStatusDiffAddLine, "added row tinted")
+    eq(nil, marks[1].GitStatusDiffAddLine, "separator not tinted")
   end)
 
   it("sanitizes control characters in file names", function()
@@ -292,6 +320,28 @@ describe("render", function()
     })
     matches("| %- stage", text(r))
     ok(not text(r):find("discard"))
+  end)
+
+  it("hints the stash key only on the work tree file under the cursor", function()
+    local s = state({
+      stashes = { { ref = "stash@{0}", hash = "aaa", subject = "wip" } },
+      files = {
+        unstaged = { { path = "x", code = "M", section = "unstaged" }, { path = "y", code = "M", section = "unstaged" } },
+        conflicted = { { path = "c", code = "UU", section = "conflicted" } },
+      },
+    })
+    local function stash_hints(r)
+      local rows = {}
+      for i, l in ipairs(r.lines) do
+        if l:find("S stash", 1, true) then
+          rows[#rows + 1] = r.items[i] and render.item_key(r.items[i])
+        end
+      end
+      return rows
+    end
+    eq({}, stash_hints(render.render(s, { width = 120 })), "not in the Stashes box nor the headers")
+    eq({ "file:unstaged:y" }, stash_hints(render.render(s, { width = 120, cursor = "file:unstaged:y" })))
+    eq({}, stash_hints(render.render(s, { width = 120, cursor = "file:conflicted:c" })))
   end)
 
   it("hints fetch on the Remote row, with keys highlighted apart from their labels", function()

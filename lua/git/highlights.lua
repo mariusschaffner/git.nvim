@@ -10,6 +10,12 @@ local function green()
   return vim.o.background == "light" and { fg = "#5f8700", ctermfg = 64 } or { fg = "#87af5f", ctermfg = 107 }
 end
 
+--- A background for the dark / light background, each as { gui, cterm }.
+local function shade(dark, light)
+  local c = vim.o.background == "light" and light or dark
+  return { bg = c[1], ctermbg = c[2] }
+end
+
 M.links = {
   GitStatusFloatTitle = "FloatTitle",
   GitStatusBoxTitle = "Title",
@@ -43,7 +49,7 @@ M.links = {
   GitStatusHashIncoming = "DiagnosticWarn",
   GitStatusSubject = "Normal",
   GitStatusDiffDelete = "Removed",
-  GitStatusDiffHunk = "Function",
+  GitStatusDiffLineNr = "LineNr",
   GitStatusDiffHeader = "Comment",
   GitStatusDiffContext = "Normal",
 }
@@ -63,6 +69,26 @@ M.colors = {
   GitStatusGraphUnpushed = green,
   GitStatusHashUnpushed = green,
   GitStatusDiffAdd = green,
+  -- Inline diffs: hunk separators, whole-row tints of added / removed lines, and their changed part stronger
+  -- (with the text color, which the stronger background replaces).
+  GitStatusDiffHunk = { fg = "#808080", ctermfg = 244 },
+  GitStatusDiffAddLine = function()
+    return shade({ "#2a3a22", 22 }, { "#e3f0d6", 194 })
+  end,
+  GitStatusDiffDeleteLine = function()
+    return shade({ "#3f2626", 52 }, { "#f5dcdc", 224 })
+  end,
+  GitStatusDiffAddText = function()
+    return vim.tbl_extend("force", green(), shade({ "#3d5a2c", 58 }, { "#c5e1a5", 150 }))
+  end,
+  GitStatusDiffDeleteText = function()
+    local fg = vim.api.nvim_get_hl(0, { name = "Removed", link = false })
+    return vim.tbl_extend(
+      "force",
+      { fg = fg.fg, ctermfg = fg.ctermfg },
+      shade({ "#6b2f2f", 88 }, { "#f0b4b4", 217 })
+    )
+  end,
   -- Background of whole graph rows; background only, so the row keeps its text colors.
   -- Search matches in the graph: a copy of Search, background included.
   GitStatusSearch = function()

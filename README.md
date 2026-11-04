@@ -4,14 +4,14 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 
 ```
 ╭── Branches ────────────────────────────────────────────────────────────────╮
-│  Remote: [v1] | origin/main | f fetch                                      │
+│  Remote: [v1] | origin/main | f fetch · P pull                             │
 │  HEAD:   [^2] | main (protected)                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Tags ────────────────────────────────────────────────────────────────────╮
 │  Nearest tag: v1.0-2-gbc8d9a4                                              │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Stashes ─────────────────────────────────────────────────────────────────╮
-│  Stashes: [1] | S stash · P pop · A apply · D drop · <CR> show             │
+│  Stashes: [1] | S pop / apply / drop · <CR> show                           │
 │    stash@{0} On main: experiment                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Files ───────────────────────────────────────────────────────────────────╮
@@ -19,8 +19,8 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │   M keep.txt (+2 | -1)                                                     │
 │   R old.txt → new.txt (+0 | -0)                                            │
 │                                                                            │
-│  Unstaged changes (1) | s stage · X discard · <Tab> diff · S stash         │
-│   M x.txt (+1 | -0)                                                        │
+│  Unstaged changes (1) | s stage · X discard · <Tab> diff                   │
+│   M x.txt (+1 | -0) | S stash                                              │
 │                                                                            │
 │  Untracked (1) | s stage · X delete · <Tab> diff                           │
 │   ?  my notes.md (new)                                                     │
@@ -87,13 +87,14 @@ require("git").setup({
 | `X` | discard unstaged changes / delete untracked files (asks first) |
 | `<Tab>` | toggle inline diff |
 | `<CR>` | open file (on a diff line: at that line); on a stash: list its files like the Files box, `<Tab>` toggles their diffs, `q` goes back; on a commit: toggle its details box (the cursor moves into it; `k` at its top goes to the top of the graph); on commits selected in Visual mode: their details combined |
-| `S` | stash the file(s) under the cursor / selected, anywhere else all changes (untracked included); asks for a message |
-| `P` / `A` / `D` | pop / apply / drop stash |
+| `S` | stash menu: `s` stashes the file(s) under the cursor / selected, anywhere else all changes (untracked included; asks for a message); on a stash `p` / `a` / `d` pop / apply / drop it |
 | `c c` | commit: the Files box turns into an editable commit message box; `<C-s>` or `:w` commits, `q` / `<Esc>` cancels (keeping the draft). `c` alone shows a popup with the choices |
 | `c a` | amend the last commit with the staged changes, editing its message |
 | `r` | on a commit in the graph: revert it (asks first) |
 | `R` | on an unpushed commit in the graph: change its message |
 | `f` | fetch (a spinner shows in the Branches box meanwhile) |
+| `P` | pull the fetched commits (fast-forward; diverged: as `pull.rebase` says); hinted on the Remote row while there are some, with a spinner meanwhile |
+| `p` | push menu: `u` toggles `--set-upstream <remote> HEAD` (publish a new branch), `f` toggles `--force-with-lease`, then `p` pushes; a spinner shows on the HEAD row meanwhile |
 | `z` | in the Files or Graph box: show only that box over the whole window; `z` or `q` to go back |
 | `/` / `n` / `N` | in the zoomed graph: search hashes, ref names and subjects, next / previous match |
 | `q` / `<Esc>` | close the commit editor, details or zoom if open, else the view (`<Esc>` only for floats) |

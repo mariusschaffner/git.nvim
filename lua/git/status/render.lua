@@ -49,6 +49,9 @@ local M = {}
 ---@field zoom ("files"|"graph")? Show only this box, over the full height (ignored while a commit or the
 --- commit message editor is shown)
 ---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
+---@field pulling string? Spinner frame shown on the Remote row while a pull runs
+---@field pushing string? Spinner frame shown on the HEAD row while a push runs
+---@field cursor string? item_key of the item under the cursor (a file there shows the stash key hint)
 ---@field stash GitStashView? A stash to show alone, its files listed like the Files box (ignored while composing)
 ---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
 --- box; the UI overlays an editor
@@ -271,7 +274,21 @@ function Builder:box(title, content, rows, offset, label)
   return top
 end
 
+--- Whether HEAD has something it can push: commits ahead of its upstream (also when it has commits to pull:
+--- --force-with-lease pushes them), or a branch without upstream yet.
 ---@param state GitState
+---@return boolean
+function M.can_push(state)
+  local b = state.branch
+  if b.detached or b.unborn or #state.remotes == 0 then
+    return false
+  end
+  if not b.upstream or b.gone then
+    return true
+  end
+  return b.ahead > 0
+end
+
 ---@param state GitState
 ---@param opts GitRenderOpts
 local function branches(state, opts)
@@ -304,8 +321,12 @@ local function branches(state, opts)
   end
   if opts.fetching then
     add(remote, { "  " .. opts.fetching .. " fetching…", HINT_KEY })
+  elseif opts.pulling then
+    add(remote, { "  " .. opts.pulling .. " pulling…", HINT_KEY })
   elseif #state.remotes > 0 then
-    add_hint(remote, hint({ { "fetch", "fetch" } }))
+    -- Pull only once there are fetched commits to pull.
+    local can_pull = b.upstream and not b.gone and not b.detached and b.behind > 0
+    add_hint(remote, hint({ { "fetch", "fetch" }, can_pull and { "pull", "pull" } or nil }))
   end
   row(remote)
 
@@ -329,6 +350,11 @@ local function branches(state, opts)
   local op = state.operation and OPERATION[state.operation]
   if op then
     add(head, { "  " .. ic.warning .. op .. " in progress", "GitStatusWarning" })
+  end
+  if opts.pushing then
+    add(head, { "  " .. opts.pushing .. " pushing…", HINT_KEY })
+  elseif M.can_push(state) then
+    add_hint(head, hint({ { "push", "push" } }))
   end
   row(head)
   return out
@@ -367,13 +393,7 @@ local function stashes(state)
     segs = add_hint({
       { " " .. ic.stash .. "Stashes: ", "GitStatusLabel" },
       { "[" .. #state.stashes .. "]", "GitStatusStash" },
-    }, hint({
-      { "stash_push", "stash" },
-      { "stash_pop", "pop" },
-      { "stash_apply", "apply" },
-      { "stash_drop", "drop" },
-      { "open", "show" },
-    })),
+    }, hint({ { "stash", "pop / apply / drop" }, { "open", "show" } })),
   }
   for i, s in ipairs(state.stashes) do
     if i > config.stash.max then
@@ -402,6 +422,7 @@ local function diffstat(f, hl)
   }
 end
 
+--- Highlight of a raw `git show` / `git diff` line (the Commit box).
 local function diff_line_hl(line)
   local c = line:sub(1, 1)
   if line:match("^diff ") or line:match("^index ") or line:match("^%+%+%+ ") or line:match("^%-%-%- ") then
@@ -414,6 +435,62 @@ local function diff_line_hl(line)
     return "GitStatusDiffDelete"
   end
   return "GitStatusDiffContext"
+end
+
+-- Inline diff rows start this far in, below the file name.
+local DIFF_INDENT = "    "
+
+local DIFF_HL = {
+  add = { sign = "+ ", text = "GitStatusDiffAdd", change = "GitStatusDiffAddText", line = "GitStatusDiffAddLine" },
+  del = { sign = "- ", text = "GitStatusDiffDelete", change = "GitStatusDiffDeleteText", line = "GitStatusDiffDeleteLine" },
+  ctx = { sign = "  ", text = "GitStatusDiffContext" },
+}
+
+--- Content rows of an inline diff: hunks as separators, a gutter with old/new line numbers, added / removed rows
+--- tinted with their changed part stronger. Items keep the raw line index, see `actions.diff_target_line`.
+---@param out table[]
+---@param diff string[] The raw `git diff` lines
+---@param ditem fun(i: integer): GitItem
+---@param opts GitRenderOpts
+local function diff_content(out, diff, ditem, opts)
+  local max = require("git.config").options.status.diff.max_lines
+  local parsed = require("git.parse.diff").rows(diff)
+  local w = parsed.width
+  local blank_gutter = string.rep(" ", w * 2 + 1) .. " │ "
+  for _, r in ipairs(parsed.rows) do
+    if r.idx > max then
+      out[#out + 1] = { segs = { { DIFF_INDENT .. ("… %d more lines"):format(#diff - max), DIM } }, item = ditem(r.idx) }
+      break
+    end
+    local segs
+    local line_hl
+    if r.kind == "hunk" then
+      local label = "┄┄ line " .. (r.new > 0 and r.new or r.old) .. (r.func and (" · " .. r.func) or "") .. " "
+      -- Filled up to the right border exactly (content is width - 4 cells), so it is not cut with an ellipsis.
+      local fill = math.max(opts.width - 4 - #DIFF_INDENT - util.width(label), 0)
+      segs = { { DIFF_INDENT }, { label .. string.rep("┄", fill), "GitStatusDiffHunk" } }
+    elseif r.kind == "note" then
+      segs = { { DIFF_INDENT }, { blank_gutter, "GitStatusDiffLineNr" }, { r.text, "GitStatusDiffHeader" } }
+    else
+      local hl = DIFF_HL[r.kind]
+      local fmt = "%" .. w .. "s %" .. w .. "s │ "
+      local gutter = fmt:format(r.kind ~= "add" and r.old or "", r.kind ~= "del" and r.new or "")
+      segs = { { DIFF_INDENT }, { gutter, "GitStatusDiffLineNr" }, { hl.sign, hl.text } }
+      local t, ch = r.text, r.change
+      if ch then
+        add(segs, ch[1] > 1 and { t:sub(1, ch[1] - 1), hl.text } or nil)
+        segs[#segs + 1] = { t:sub(ch[1], ch[2]), hl.change }
+        add(segs, ch[2] < #t and { t:sub(ch[2] + 1), hl.text } or nil)
+      else
+        segs[#segs + 1] = { t, hl.text }
+      end
+      line_hl = hl.line
+    end
+    out[#out + 1] = { segs = segs, item = ditem(r.idx), line_hl = line_hl }
+  end
+  if #parsed.rows == 0 then
+    out[#out + 1] = { segs = { { DIFF_INDENT .. "(no diff)", DIM } }, item = ditem(0) }
+  end
 end
 
 local ITEM_HL = {
@@ -467,24 +544,17 @@ local function file_section(out, section, list, spec, opts)
       add(segs, { " (submodule)", DIM })
     end
     local item = { kind = "file", section = section, file = f }
+    -- The stash key only on the work tree file under the cursor (conflicted files cannot be stashed).
+    if opts.cursor and not f.stash and section ~= "conflicted" and opts.cursor == M.item_key(item) then
+      add_hint(segs, hint({ { "stash", "stash" } }))
+    end
     out[#out + 1] = { segs = segs, item = item }
 
     local diff = opts.expanded and opts.expanded[M.diff_key(f)]
     if diff then
-      local max = config.status.diff.max_lines
-      local function ditem(i)
+      diff_content(out, diff, function(i)
         return { kind = "diff", section = section, file = f, diff_line = i }
-      end
-      for i, dl in ipairs(diff) do
-        if i > max then
-          out[#out + 1] = { segs = { { ("      … %d more lines"):format(#diff - max), DIM } }, item = ditem(i) }
-          break
-        end
-        out[#out + 1] = { segs = { { "      " }, { dl, diff_line_hl(dl) } }, item = ditem(i) }
-      end
-      if #diff == 0 then
-        out[#out + 1] = { segs = { { "      (no diff)", DIM } }, item = ditem(0) }
-      end
+      end, opts)
     end
   end
 end
@@ -504,12 +574,7 @@ local function files(state, opts)
   local section_hints = {
     conflicted = hint({ { "stage", "mark resolved" }, { "toggle_diff", "diff" } }, "(git mergetool)"),
     staged = hint({ { "unstage", "unstage" }, { "toggle_diff", "diff" }, { "commit", "commit" } }),
-    unstaged = hint({
-      { "stage", "stage" },
-      { "discard", "discard" },
-      { "toggle_diff", "diff" },
-      { "stash_push", "stash" },
-    }),
+    unstaged = hint({ { "stage", "stage" }, { "discard", "discard" }, { "toggle_diff", "diff" } }),
     untracked = hint({ { "stage", "stage" }, { "discard", "delete" }, { "toggle_diff", "diff" } }),
   }
   for _, section in ipairs({ "conflicted", "staged", "unstaged", "untracked" }) do
@@ -529,14 +594,30 @@ end
 ---@param opts GitRenderOpts
 local function stash_files(view, opts)
   local ic = require("git.config").icons()
+  -- The ref and subject, then what the stash holds, with the keys behind it so a long subject cannot hide them.
+  local n, added, deleted = 0, 0, 0
+  for _, list in pairs(view.files) do
+    for _, f in ipairs(list) do
+      n = n + 1
+      added, deleted = added + (f.added or 0), deleted + (f.deleted or 0)
+    end
+  end
+  local summary = {
+    { (" %d file%s · "):format(n, n == 1 and "" or "s"), DIM },
+    { "+" .. added, "GitStatusAdded" },
+    { " ", DIM },
+    { "-" .. deleted, "GitStatusDeleted" },
+  }
   local out = {
     {
-      segs = add_hint({ { " " .. view.stash.ref .. " " .. view.stash.subject, "GitStatusStash" } }, hint({
-        { "stash_pop", "pop" },
-        { "stash_apply", "apply" },
-        { "stash_drop", "drop" },
-        { "close", "back" },
-      })),
+      segs = {
+        { " " .. view.stash.ref, "GitStatusStash" },
+        { " · ", DIM },
+        { view.stash.subject, "GitStatusSubject" },
+      },
+    },
+    {
+      segs = add_hint(summary, hint({ { "stash", "pop / apply / drop" }, { "close", "back" } })),
     },
   }
   local before = #out

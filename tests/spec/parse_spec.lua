@@ -141,6 +141,66 @@ describe("parse.log", function()
   end)
 end)
 
+describe("parse.diff", function()
+  local diff = require("git.parse.diff")
+  local function kinds(rows)
+    return vim.tbl_map(function(r)
+      return r.kind .. ":" .. r.idx
+    end, rows)
+  end
+
+  it("leaves out file headers, keeps notes and counts line numbers per hunk", function()
+    local d = diff.rows({
+      "",
+      "diff --git a/x b/x",
+      "new file mode 100644",
+      "index 0000000..1111111",
+      "--- /dev/null",
+      "+++ b/x",
+      "@@ -0,0 +1,2 @@",
+      "+a",
+      "+b",
+      "\\ No newline at end of file",
+    })
+    eq({ "note:3", "hunk:7", "add:8", "add:9", "note:10" }, kinds(d.rows))
+    eq(1, d.rows[2].new)
+    eq({ 1, 2 }, { d.rows[3].new, d.rows[4].new })
+
+    d = diff.rows({ "@@ -3,3 +3,2 @@ local x", " c", "-d", " e", "@@ -110,1 +109,2 @@", " y", "+z" })
+    eq("local x", d.rows[1].func)
+    eq({ 3, 3 }, { d.rows[2].old, d.rows[2].new })
+    eq(4, d.rows[3].old)
+    eq({ 5, 4 }, { d.rows[4].old, d.rows[4].new })
+    eq({ 110, 109 }, { d.rows[6].old, d.rows[6].new })
+    eq(110, d.rows[7].new)
+    eq(3, d.width)
+  end)
+
+  it("marks the changed part of paired removed and added lines", function()
+    local d = diff.rows({ "@@ -1,2 +1,2 @@", "-local a = old()", "-x = 1", "+local a = new()", "+x = 2" })
+    eq("old", d.rows[2].text:sub(d.rows[2].change[1], d.rows[2].change[2]))
+    eq("new", d.rows[4].text:sub(d.rows[4].change[1], d.rows[4].change[2]))
+    eq("1", d.rows[3].text:sub(d.rows[3].change[1], d.rows[3].change[2]))
+    eq("2", d.rows[5].text:sub(d.rows[5].change[1], d.rows[5].change[2]))
+    -- multibyte characters are never split
+    d = diff.rows({ "@@ -1 +1 @@", "-name = 'größ'", "+name = 'grün'" })
+    local del, add = d.rows[2], d.rows[3]
+    eq("öß", del.text:sub(del.change[1], del.change[2]))
+    eq("ün", add.text:sub(add.change[1], add.change[2]))
+    -- an inserted part: nothing removed on the old line
+    d = diff.rows({ "@@ -1 +1 @@", "-f(a)", "+f(a, b)" })
+    eq(nil, d.rows[2].change)
+    eq(", b", d.rows[3].text:sub(d.rows[3].change[1], d.rows[3].change[2]))
+    -- a rewritten line is not marked
+    d = diff.rows({ "@@ -1 +1 @@", "-completely different", "+nothing alike here" })
+    eq(nil, d.rows[2].change)
+    eq(nil, d.rows[3].change)
+    -- removed lines without added ones right after them are not paired
+    d = diff.rows({ "@@ -1,3 +1,3 @@", "-a = 1", " b", "+a = 2" })
+    eq(nil, d.rows[2].change)
+  end)
+end)
+
 describe("health", function()
   it("parses git versions", function()
     local h = require("git.health")
