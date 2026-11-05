@@ -181,11 +181,10 @@ function View.new(repo, kind)
   return self
 end
 
---- Whether an item_key is a work tree file that can be stashed (it gets the stash key hint).
+--- Whether an item_key is a file, section header or Branches row: the line under the cursor shows their key hints.
 ---@param key string?
-local function stashable(key)
-  local section = key and key:match("^file:(%a+):")
-  return section == "staged" or section == "unstaged" or section == "untracked"
+local function hinted(key)
+  return key ~= nil and (key:match("^file:") ~= nil or key:match("^section:") ~= nil or key:match("^branch:") ~= nil)
 end
 
 function View:_autocmds()
@@ -219,14 +218,14 @@ function View:_autocmds()
       self:redraw()
     end,
   })
-  -- Hints that follow the cursor (the stash key on a file).
+  -- Key hints follow the cursor over files, section headers and the Branches rows.
   au("CursorMoved", {
     buffer = self.buf,
     callback = function()
       if self:valid() and vim.api.nvim_get_current_win() == self.win and self.rendered then
         -- Only when the hint appears or goes, so moving through the graph stays cheap.
         local key = render.item_key(self:item())
-        if key ~= self.hover and (stashable(key) or stashable(self.hover)) then
+        if key ~= self.hover and (hinted(key) or hinted(self.hover)) then
           self:redraw()
         end
       end
@@ -401,7 +400,7 @@ function View:redraw(opts)
   pcall(vim.api.nvim_win_set_cursor, self.win, { target, target == cursor[1] and cursor[2] or 0 })
   -- The cursor landed elsewhere than guessed (e.g. on the first file at first): draw the hints for where it is.
   local landed = render.item_key(self:item())
-  if landed ~= self.hover and (stashable(landed) or stashable(self.hover)) then
+  if landed ~= self.hover and (hinted(landed) or hinted(self.hover)) then
     return self:redraw({ key = landed })
   end
   vim.api.nvim_win_call(self.win, function()

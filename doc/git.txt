@@ -31,7 +31,9 @@ current directory) in up to five panels:
   Graph      a lane-based graph of the whole history (loaded page by page as
              you scroll), including the upstream's when it is ahead;
              unpushed commits are marked `!`, incoming (not yet pulled)
-             ones get a background color
+             ones get a background color; each commit's time
+             (HH:MM DD.MM.YY, committer date) is shown dimmed at the
+             right edge
 
 Files can be staged, unstaged and discarded from the view, stashes created,
 popped, applied and dropped, and commits and stashes opened. All git commands run
@@ -52,7 +54,8 @@ split the height left after Branches, Tags and Stashes evenly (with a clean
 working tree there is no Files box and the Graph takes all of it) and scroll on their
 own: `j`/`k` past a box edge, `<C-e>` `<C-y>` `<C-d>` `<C-u>` `<C-f>` `<C-b>`
 `<PageDown>` `<PageUp>` (the box under the cursor, else the graph) and the
-mouse wheel (the box under the mouse). The bottom border shows the visible range when a box overflows.
+mouse wheel (the box under the mouse). The bottom border shows the visible range when a box overflows
+(except the Graph's).
 
 While any inline diff is open, only the Files box is shown, using the whole
 view. `<CR>` on a commit shows only the Graph (30%) and a Commit box with the
@@ -127,7 +130,9 @@ Buffer-local mappings in the status view (press `?` for this list):
               S p   pop, `S a` apply, `S d` drop (asks first) the stash
                     under the cursor or the one shown in the Stash box;
                     only offered there
-            The file under the cursor shows the key as a hint.
+            The file or section header under the cursor shows the key as a
+            hint, next to the other keys that apply to it (a staged file:
+            unstage, an unstaged one: stage and discard, and so on).
   c         Commit menu: a popup lists the next key, which picks
               c c   commit the staged changes: the files box turns into an
                     editable commit message box (filetype `gitcommit`)
@@ -140,7 +145,8 @@ Buffer-local mappings in the status view (press `?` for this list):
             last commit is amended; for an older one it and the commits
             above it are recreated. Staged and unstaged changes stay as
             they are.
-  p         Push menu: a popup lists the push options; their keys
+  p         On the HEAD row of the Branches box (elsewhere `p` does
+            nothing): push menu. A popup lists the push options; their keys
             toggle them (`[x]` / `[ ]`, the popup shows again), `p` pushes
             with the options that are on, any other key closes the menu:
               u     `--set-upstream <remote> HEAD`: publish the branch
@@ -151,14 +157,18 @@ Buffer-local mappings in the status view (press `?` for this list):
                     a protected branch
               p     push. Without `u` the branch needs an upstream, and
                     without `f` it must have nothing to pull first.
-            A spinner shows on the HEAD row meanwhile. The HEAD row hints
-            the key while the branch has commits to push or no upstream.
-  P         Pull (`git pull`) the fetched commits not pulled yet; the
-            Remote row hints the key while there are some, and shows a
-            spinner meanwhile. Only behind: a fast-forward (`--ff-only`).
+            A spinner shows on the HEAD row meanwhile. With the cursor on
+            it, the HEAD row hints the key while the branch has commits to
+            push or no upstream.
+  P         On the Remote row of the Branches box (elsewhere `P` does
+            nothing): pull (`git pull`) the fetched commits not pulled yet.
+            With the cursor on it, the row hints the key while there are
+            some; it shows a spinner meanwhile. Only behind: a fast-forward (`--ff-only`).
             Diverged: merged or rebased as your `pull.rebase` setting
             says.
-  f         Fetch (`git fetch`) the branch's remote; a spinner shows in the
+  f         On the Remote row of the Branches box (elsewhere `f` does
+            nothing, the row hints it with the cursor on it): fetch
+            (`git fetch`) the branch's remote; a spinner shows in the
             Branches box meanwhile, then incoming commits show in the graph.
   z         In the Files or Graph box: show only that box, over the whole
             window. `z` again (or `q`) shows all boxes again.
@@ -223,6 +233,7 @@ Defaults: >lua
       auto_refresh = true, -- refresh on index/HEAD changes, writes, focus
       refresh_debounce = 150,
       hints = true,        -- show key and git command hints in the panels
+                           -- (in the Files and Stash boxes: on the cursor line)
       keymaps = {
         stage = "s",
         unstage = "u",
@@ -291,6 +302,8 @@ with |nvim_set_hl()| are left alone.
   GitStatusStash            stash entries          -> Special
   GitStatusSection{Conflicted,Staged,Unstaged,Untracked}   section headers
   GitStatus{Conflicted,Staged,Unstaged,Untracked}          file markers
+                            (unstaged: a soft amber, #e5c07b / #9e6a03 on a
+                            light background, instead of Changed)
   GitStatusFile             file names             -> Normal
   GitStatusAdded            +N                     green (*)
   GitStatusDeleted          -N                     -> Removed

@@ -317,9 +317,45 @@ describe("render", function()
     config.setup({ icons = false, status = { keymaps = { stage = "-", discard = false } } })
     local r = render.render(state({ files = { unstaged = { { path = "x", code = "M", section = "unstaged" } } } }), {
       width = 120,
+      cursor = "file:unstaged:x",
     })
     matches("| %- stage", text(r))
     ok(not text(r):find("discard"))
+  end)
+
+  it("hints the keys that apply only on the file or header under the cursor", function()
+    local s = state({
+      files = {
+        staged = { { path = "a", code = "M", section = "staged" } },
+        unstaged = { { path = "b", code = "M", section = "unstaged" } },
+        untracked = { { path = "c", code = "?", section = "untracked" } },
+        conflicted = { { path = "d", code = "UU", section = "conflicted" } },
+      },
+    })
+    local function hints(cursor, expanded)
+      local r = render.render(s, { width = 200, cursor = cursor, expanded = expanded })
+      local rows = {}
+      for i, l in ipairs(r.lines) do
+        local h = l:match(" | (.-)%s*│$")
+        if h and r.items[i] and r.items[i].kind ~= "stash" and r.items[i].kind ~= "branch" then
+          rows[render.item_key(r.items[i])] = h
+        end
+      end
+      return rows
+    end
+    eq({}, hints(nil), "no hints without a cursor line")
+    eq({ ["file:staged:a"] = "u unstage · <Tab> diff · S stash · c commit" }, hints("file:staged:a"))
+    eq({ ["file:unstaged:b"] = "s stage · X discard · <Tab> diff · S stash" }, hints("file:unstaged:b"))
+    eq({ ["file:untracked:c"] = "s stage · X delete · <Tab> diff · S stash" }, hints("file:untracked:c"))
+    eq({ ["file:conflicted:d"] = "s mark resolved · <Tab> diff" }, hints("file:conflicted:d"))
+    eq({ ["section:conflicted"] = "s mark resolved · <Tab> diff · (git mergetool)" }, hints("section:conflicted"))
+    eq({ ["section:staged"] = "u unstage · <Tab> diff · S stash · c commit" }, hints("section:staged"))
+    -- an open diff: the diff key closes it
+    eq(
+      { ["file:unstaged:b"] = "s stage · X discard · <Tab> hide diff · S stash" },
+      hints("file:unstaged:b", { ["unstaged:b"] = { "@@ -1 +1 @@", "-x", "+y" } })
+    )
+    eq({}, hints("commit:abc"), "elsewhere no file hints")
   end)
 
   it("hints the stash key only on the work tree file under the cursor", function()
@@ -344,9 +380,53 @@ describe("render", function()
     eq({}, stash_hints(render.render(s, { width = 120, cursor = "file:conflicted:c" })))
   end)
 
+  it("shows the commit time dimmed at the right edge of commit rows, cutting the subject for it", function()
+    local t = os.time({ year = 2026, month = 3, day = 7, hour = 9, min = 5 })
+    local subject = string.rep("long subject ", 10)
+    local s = state({ graph = { { hash = "h1", abbrev = "h1", parents = {}, deco = "", subject = subject, time = t } } })
+    local r = render.render(s, { width = 60, height = 30 })
+    local lnum
+    for l, it in pairs(r.items) do
+      if it.kind == "commit" then
+        lnum = l
+      end
+    end
+    local line = r.lines[lnum]
+    matches(" 09:05 07%.03%.26 │$", line)
+    eq(60, util.width(line))
+    matches("…", line, "the subject is cut to leave room")
+    local hl
+    for _, m in ipairs(r.marks) do
+      if m.row == lnum - 1 and line:sub(m.col + 1, m.end_col) == "09:05 07.03.26" then
+        hl = m.hl
+      end
+    end
+    eq("GitStatusDim", hl)
+    -- no time known (e.g. older states): no date
+    s.graph[1].time = nil
+    r = render.render(s, { width = 60, height = 30 })
+    ok(not text(r):find("07%.03%.26"))
+  end)
+
+  it("shows the visible range on an overflowing box's border, except the graph's", function()
+    local graph, unstaged = {}, {}
+    for i = 1, 40 do
+      graph[i] = { hash = "h" .. i, abbrev = "h" .. i, parents = { "h" .. (i + 1) }, deco = "", subject = "c" .. i }
+      unstaged[i] = { path = "f" .. i, code = "M", section = "unstaged" }
+    end
+    local r = render.render(state({ graph = graph, files = { unstaged = unstaged } }), { width = 60, height = 30 })
+    local files_bottom = r.lines[r.boxes.files.top + r.boxes.files.rows]
+    local graph_bottom = r.lines[r.boxes.graph.top + r.boxes.graph.rows]
+    matches(" 1%-%d+/41 ", files_bottom)
+    ok(not graph_bottom:find("%d/%d"), "no range on the graph: " .. graph_bottom)
+  end)
+
   it("hints fetch on the Remote row, with keys highlighted apart from their labels", function()
     local s = state({ branch = { upstream = "origin/main" } })
-    local r = render.render(s, { width = 120 })
+    ok(not render.render(s, { width = 120 }).lines[2]:find("f fetch"), "only with the cursor on the row")
+    local r = render.render(s, { width = 120, cursor = "branch:remote" })
+    eq({ kind = "branch", row = "remote" }, r.items[2])
+    eq({ kind = "branch", row = "head" }, r.items[3])
     matches("origin/main | f fetch", r.lines[2])
     local hls = {}
     for _, m in ipairs(r.marks) do
@@ -358,8 +438,9 @@ describe("render", function()
     eq("GitStatusHint", hls[" fetch"])
     eq("GitStatusHint", hls[" | "])
     -- the spinner takes its place while fetching; no hint without a remote
-    ok(not render.render(s, { width = 120, fetching = "|" }).lines[2]:find("f fetch"))
-    local no_remote = render.render(vim.tbl_extend("force", state(), { remotes = {} }), { width = 120 })
+    ok(not render.render(s, { width = 120, cursor = "branch:remote", fetching = "|" }).lines[2]:find("f fetch"))
+    local no_remote =
+      render.render(vim.tbl_extend("force", state(), { remotes = {} }), { width = 120, cursor = "branch:remote" })
     ok(not no_remote.lines[2]:find("fetch"))
   end)
 

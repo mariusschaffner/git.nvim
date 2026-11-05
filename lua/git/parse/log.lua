@@ -3,7 +3,7 @@ local util = require("git.core.util")
 local M = {}
 
 -- Unit separator between fields, record separator after each commit.
-M.FORMAT = "--pretty=tformat:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1e"
+M.FORMAT = "--pretty=tformat:%H%x1f%h%x1f%P%x1f%D%x1f%ct%x1f%s%x1e"
 M.STASH_FORMAT = "--pretty=tformat:%gd%x1f%H%x1f%s%x1e"
 
 ---@class GitCommit
@@ -11,6 +11,7 @@ M.STASH_FORMAT = "--pretty=tformat:%gd%x1f%H%x1f%s%x1e"
 ---@field abbrev string
 ---@field parents string[]
 ---@field deco string Ref names (without the surrounding parentheses)
+---@field time integer? Committer date, as a Unix timestamp
 ---@field subject string
 
 local function records(out)
@@ -30,14 +31,15 @@ end
 function M.parse(out)
   local commits = {}
   for _, f in ipairs(records(out)) do
-    if #f >= 5 then
+    if #f >= 6 then
       commits[#commits + 1] = {
         hash = f[1],
         abbrev = f[2],
         parents = f[3] ~= "" and vim.split(f[3], " ", { trimempty = true }) or {},
         deco = f[4],
-        -- a subject could in theory contain the separator; keep everything after the 4th field
-        subject = table.concat(f, "\31", 5),
+        time = tonumber(f[5]),
+        -- a subject could in theory contain the separator; keep everything after the 5th field
+        subject = table.concat(f, "\31", 6),
       }
     end
   end

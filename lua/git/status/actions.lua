@@ -208,7 +208,7 @@ function M.open(view, item)
   elseif item.kind == "stash" then
     view:toggle_stash(item.stash)
     return
-  elseif item.kind == "section" then
+  elseif item.kind == "section" or item.kind == "branch" then
     return
   end
 
@@ -783,7 +783,7 @@ M.descriptions = {
   reword = "Reword unpushed commit",
   fetch = "Fetch",
   pull = "Pull",
-  push = "Push (menu: options, then push)",
+  push = "Push",
   zoom = "Zoom box",
   search = "Search (zoomed)",
   search_next = "Next match",
@@ -824,7 +824,7 @@ M.contexts = {
   stashes = { "stash", "open" },
   files = { "stage", "unstage", "discard", "toggle_diff", "stash", "commit", "open", "zoom" },
   stash = { "toggle_diff", "open", "stash", "close" },
-  graph = { "open", "revert", "reword", "zoom", "search", "search_next", "search_prev" },
+  graph = { "open", "revert", "reword", "zoom", "search" },
   commit = {},
   compose = { "commit_submit", "commit_abort" },
 }
@@ -967,6 +967,14 @@ local function target_items(view)
   return it and { it } or {}
 end
 
+--- Whether the cursor is on the Remote or HEAD row of the Branches box (fetch / pull and push work only there).
+---@param view GitView
+---@param row "remote"|"head"
+local function on_row(view, row)
+  local item = view:item()
+  return item ~= nil and item.kind == "branch" and item.row == row
+end
+
 --- Install buffer-local keymaps on the view's buffer.
 ---@param view GitView
 function M.attach(view)
@@ -1028,19 +1036,25 @@ function M.attach(view)
     fetch = {
       "n",
       function()
-        view:fetch()
+        if on_row(view, "remote") then
+          view:fetch()
+        end
       end,
     },
     pull = {
       "n",
       function()
-        view:pull()
+        if on_row(view, "remote") then
+          view:pull()
+        end
       end,
     },
     push = {
       "n",
       function()
-        M.push(view)
+        if on_row(view, "head") then
+          M.push(view)
+        end
       end,
     },
     zoom = {

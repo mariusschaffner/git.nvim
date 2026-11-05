@@ -16,6 +16,11 @@ local function shade(dark, light)
   return { bg = c[1], ctermbg = c[2] }
 end
 
+-- A soft amber for unstaged changes: Changed is a bright cyan in many colorschemes.
+local function amber()
+  return vim.o.background == "light" and { fg = "#9e6a03", ctermfg = 136 } or { fg = "#e5c07b", ctermfg = 180 }
+end
+
 M.links = {
   GitStatusFloatTitle = "FloatTitle",
   GitStatusBoxTitle = "Title",
@@ -33,10 +38,8 @@ M.links = {
   GitStatusWarning = "WarningMsg",
   GitStatusStash = "Special",
   GitStatusSectionConflicted = "DiagnosticError",
-  GitStatusSectionUnstaged = "Changed",
   GitStatusSectionUntracked = "Special",
   GitStatusConflicted = "DiagnosticError",
-  GitStatusUnstaged = "Changed",
   GitStatusUntracked = "Special",
   GitStatusFile = "Normal",
   GitStatusDeleted = "Removed",
@@ -69,6 +72,8 @@ M.colors = {
   GitStatusGraphUnpushed = green,
   GitStatusHashUnpushed = green,
   GitStatusDiffAdd = green,
+  GitStatusSectionUnstaged = amber,
+  GitStatusUnstaged = amber,
   -- Inline diffs: hunk separators, whole-row tints of added / removed lines, and their changed part stronger
   -- (with the text color, which the stronger background replaces).
   GitStatusDiffHunk = { fg = "#808080", ctermfg = 244 },

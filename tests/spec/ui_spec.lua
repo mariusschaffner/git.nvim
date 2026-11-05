@@ -30,6 +30,18 @@ local function settle(view, fn)
   end, 10))
 end
 
+--- Put the cursor on the Remote or HEAD row of the Branches box (fetch / pull and push work only there).
+local function on_branch_row(view, row)
+  for lnum, it in pairs(view.rendered.items) do
+    if it.kind == "branch" and it.row == row then
+      vim.api.nvim_win_set_cursor(view.win, { lnum, 0 })
+      vim.cmd("doautocmd <nomodeline> CursorMoved")
+      return
+    end
+  end
+  error("no " .. row .. " row")
+end
+
 local function find_line(view, pred)
   for lnum, it in pairs(view.rendered.items) do
     if pred(it) then
@@ -373,15 +385,16 @@ describe("ui", function()
     eq(0, vim.fn.filereadable(dir .. "/new.txt"))
   end)
 
-  it("moves the stash key hint along with the cursor over the files", function()
+  it("moves the key hints along with the cursor over files and section headers", function()
     H.write(dir, "tracked.txt", { "changed" })
     H.write(dir, "new.txt", { "new" })
     local view = open(dir, "float")
     local function hinted()
       local rows = {}
       for i, l in ipairs(vim.api.nvim_buf_get_lines(view.buf, 0, -1, false)) do
-        if l:find("S stash", 1, true) then
-          rows[#rows + 1] = view.rendered.items[i + 0] and view.rendered.items[i].file.path
+        local it = view.rendered.items[i]
+        if l:find("| s stage", 1, true) and it then
+          rows[#rows + 1] = it.kind == "file" and it.file.path or it.section
         end
       end
       return rows
@@ -397,10 +410,16 @@ describe("ui", function()
     vim.cmd("doautocmd <nomodeline> CursorMoved")
     eq("new.txt", view:item().file.path)
     eq({ "new.txt" }, hinted())
-    -- on the section header: no hint at all
+    -- on the section header: its hints, for all of its files
     vim.api.nvim_feedkeys("k", "x", false)
     vim.cmd("doautocmd <nomodeline> CursorMoved")
     eq("section", view:item().kind)
+    eq({ "untracked" }, hinted())
+    -- in the graph: none
+    vim.api.nvim_win_set_cursor(view.win, { (find_line(view, function(it)
+      return it.kind == "commit" and not it.refs
+    end)), 0 })
+    vim.cmd("doautocmd <nomodeline> CursorMoved")
     eq({}, hinted())
   end)
 
@@ -893,6 +912,11 @@ describe("ui", function()
 
     local view = open(dir, "float")
     eq(0, view.state.branch.behind)
+    ok(not view.rendered.lines[2]:find("f fetch"), "no hint off the Remote row")
+    vim.api.nvim_feedkeys("f", "x", false)
+    eq(nil, view.spinner_timer, "f does nothing off the Remote row")
+    on_branch_row(view, "remote")
+    matches("| f fetch", view.rendered.lines[2])
     vim.api.nvim_feedkeys("f", "x", false)
     ok(view.spinner_timer, "spinner running")
     matches("fetching", view.rendered.lines[2])
@@ -936,6 +960,10 @@ describe("ui", function()
     local function head_row()
       return view.rendered.lines[3]
     end
+    ok(not head_row():find("p push"), "no hint off the HEAD row")
+    vim.api.nvim_feedkeys("pp", "x", false)
+    eq(nil, view.spinner_timer, "p does nothing off the HEAD row")
+    on_branch_row(view, "head")
     matches("main.* | p push", head_row())
     -- p opens the push menu; u / f toggle its options (shown again each time), the second p pushes
     local popup = actions.popup
@@ -1032,6 +1060,7 @@ describe("ui", function()
     H.git(dir, { "push", "--quiet", "-u", "origin", "main" })
     H.git(dir, { "config", "pull.rebase", "true" })
     local view = open(dir, "float")
+    on_branch_row(view, "remote")
     ok(not view.rendered.lines[2]:find("P pull"), "nothing to pull")
 
     local other = H.repo()

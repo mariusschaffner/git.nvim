@@ -6,7 +6,8 @@ local M = {}
 ---@alias GitSeg { [1]: string, [2]: string? } text, highlight group
 
 ---@class GitItem
----@field kind "section"|"file"|"diff"|"stash"|"commit"
+---@field kind "section"|"file"|"diff"|"stash"|"commit"|"branch"
+---@field row ("remote"|"head")? Branch items: the Remote or the HEAD row of the Branches box
 ---@field section GitSection|"changes"?
 ---@field file GitFile?
 ---@field stash (GitStash|string)? Stash items: the stash; section items of the stash box: the stash commit
@@ -51,7 +52,7 @@ local M = {}
 ---@field fetching string? Spinner frame shown in the Branches box while a fetch runs
 ---@field pulling string? Spinner frame shown on the Remote row while a pull runs
 ---@field pushing string? Spinner frame shown on the HEAD row while a push runs
----@field cursor string? item_key of the item under the cursor (a file there shows the stash key hint)
+---@field cursor string? item_key of the item under the cursor: a file or section header there shows its key hints
 ---@field stash GitStashView? A stash to show alone, its files listed like the Files box (ignored while composing)
 ---@field compose (boolean|string)? Show an empty "Commit message" box (or one with this title) in place of the files
 --- box; the UI overlays an editor
@@ -95,6 +96,8 @@ function M.item_key(item)
     return "stash:" .. item.stash.ref
   elseif item.kind == "commit" then
     return "commit:" .. item.hash
+  elseif item.kind == "branch" then
+    return "branch:" .. item.row
   end
 end
 
@@ -215,15 +218,22 @@ end
 ---@param segs GitSeg[]
 ---@param item GitItem?
 ---@param line_hl string? Background for the whole content area, below the segment highlights
-function Builder:line(segs, item, line_hl)
+---@param aside GitSeg? Text at the right edge of the content; the segments are cut to leave room for it
+function Builder:line(segs, item, line_hl, aside)
   local content_w = math.max(self.width - 4, 1)
+  local aside_w = aside and util.width(aside[1]) or 0
+  -- Only when it fits with some room (2 cells) to the left of it.
+  if aside and aside_w + 2 > content_w then
+    aside, aside_w = nil, 0
+  end
+  local left_w = aside and (content_w - aside_w - 1) or content_w
   local left, right = "│ ", " │"
   local parts, marks = { left }, { { 0, #left, "GitStatusBorder" } }
   local col, used = #left, 0
   for _, seg in ipairs(segs) do
     local text = util.sanitize(seg[1] or "")
     if text ~= "" then
-      local remaining = content_w - used
+      local remaining = left_w - used
       if remaining <= 0 then
         break
       end
@@ -236,10 +246,18 @@ function Builder:line(segs, item, line_hl)
       used = used + w
     end
   end
-  if used < content_w then
-    local pad = string.rep(" ", content_w - used)
+  local fill = content_w - used - aside_w
+  if fill > 0 then
+    local pad = string.rep(" ", fill)
     parts[#parts + 1] = pad
     col = col + #pad
+  end
+  if aside then
+    parts[#parts + 1] = aside[1]
+    if aside[2] then
+      marks[#marks + 1] = { col, col + #aside[1], aside[2] }
+    end
+    col = col + #aside[1]
   end
   parts[#parts + 1] = right
   marks[#marks + 1] = { col, col + #right, "GitStatusBorder" }
@@ -250,10 +268,11 @@ function Builder:line(segs, item, line_hl)
 end
 
 ---@param title string
----@param content { segs: GitSeg[], item: GitItem?, line_hl: string? }[]
+---@param content { segs: GitSeg[], item: GitItem?, line_hl: string?, aside: GitSeg? }[]
 ---@param rows integer? Fixed number of content rows; content is windowed by `offset` and padded
 ---@param offset integer?
----@param label (string|GitSeg[])? Bottom border label when the content is not scrolled
+---@param label (string|GitSeg[]|false)? Bottom border label when the content does not overflow; false: no
+--- label at all, not even the visible range when it overflows
 ---@return integer? top 1-based line of the first content row
 function Builder:box(title, content, rows, offset, label)
   if #content == 0 and not rows then
@@ -265,9 +284,11 @@ function Builder:box(title, content, rows, offset, label)
   offset = offset or 0
   for i = offset + 1, offset + rows do
     local c = content[i] or { segs = {} }
-    self:line(c.segs, c.item, c.line_hl)
+    self:line(c.segs, c.item, c.line_hl, c.aside)
   end
-  if #content > rows then
+  if label == false then
+    label = nil
+  elseif #content > rows then
     label = (" %d-%d/%d "):format(offset + 1, math.min(offset + rows, #content), #content)
   end
   self:bottom(label)
@@ -287,6 +308,14 @@ function M.can_push(state)
     return true
   end
   return b.ahead > 0
+end
+
+--- Whether there are fetched commits to pull: the upstream is ahead of HEAD.
+---@param state GitState
+---@return boolean
+function M.can_pull(state)
+  local b = state.branch
+  return b.upstream ~= nil and not b.gone and not b.detached and b.behind > 0
 end
 
 ---@param state GitState
@@ -323,12 +352,11 @@ local function branches(state, opts)
     add(remote, { "  " .. opts.fetching .. " fetching…", HINT_KEY })
   elseif opts.pulling then
     add(remote, { "  " .. opts.pulling .. " pulling…", HINT_KEY })
-  elseif #state.remotes > 0 then
-    -- Pull only once there are fetched commits to pull.
-    local can_pull = b.upstream and not b.gone and not b.detached and b.behind > 0
-    add_hint(remote, hint({ { "fetch", "fetch" }, can_pull and { "pull", "pull" } or nil }))
+  elseif #state.remotes > 0 and opts.cursor == "branch:remote" then
+    -- Only on the row, where the keys work; pull only once there are fetched commits to pull.
+    add_hint(remote, hint({ { "fetch", "fetch" }, M.can_pull(state) and { "pull", "pull" } or nil }))
   end
-  row(remote)
+  row(remote, { kind = "branch", row = "remote" })
 
   local name
   if b.detached then
@@ -353,10 +381,10 @@ local function branches(state, opts)
   end
   if opts.pushing then
     add(head, { "  " .. opts.pushing .. " pushing…", HINT_KEY })
-  elseif M.can_push(state) then
+  elseif M.can_push(state) and opts.cursor == "branch:head" then
     add_hint(head, hint({ { "push", "push" } }))
   end
-  row(head)
+  row(head, { kind = "branch", row = "head" })
   return out
 end
 
@@ -510,7 +538,8 @@ local HEADER_HL = {
 ---@param out table[]
 ---@param section string
 ---@param list GitFile[]
----@param spec { label: string, icon: string, header_hl: string, hl: string, hint: GitSeg[]?, stash: string? }
+---@param spec { label: string, icon: string, header_hl: string, hl: string, stash: string?, header_hints: table[], header_extra: string?, file_hints: table[] }
+--- `header_hints` / `file_hints`: { action, label } pairs hinted on the header / a file while the cursor is on it
 ---@param opts GitRenderOpts
 local function file_section(out, section, list, spec, opts)
   local config = require("git.config").options
@@ -521,10 +550,16 @@ local function file_section(out, section, list, spec, opts)
   if #out > 0 then
     out[#out + 1] = { segs = {} }
   end
-  out[#out + 1] = {
-    segs = add_hint({ { " " .. spec.icon .. spec.label .. " (" .. #list .. ")", spec.header_hl } }, spec.hint),
-    item = { kind = "section", section = section, stash = spec.stash },
-  }
+  -- Key hints only on the line under the cursor, with the keys that apply to it.
+  local function at_cursor(item)
+    return opts.cursor ~= nil and opts.cursor == M.item_key(item)
+  end
+  local header = { kind = "section", section = section, stash = spec.stash }
+  local header_segs = { { " " .. spec.icon .. spec.label .. " (" .. #list .. ")", spec.header_hl } }
+  if at_cursor(header) then
+    add_hint(header_segs, hint(spec.header_hints, spec.header_extra))
+  end
+  out[#out + 1] = { segs = header_segs, item = header }
   local hl = spec.hl
   for _, f in ipairs(list) do
     local segs
@@ -544,13 +579,15 @@ local function file_section(out, section, list, spec, opts)
       add(segs, { " (submodule)", DIM })
     end
     local item = { kind = "file", section = section, file = f }
-    -- The stash key only on the work tree file under the cursor (conflicted files cannot be stashed).
-    if opts.cursor and not f.stash and section ~= "conflicted" and opts.cursor == M.item_key(item) then
-      add_hint(segs, hint({ { "stash", "stash" } }))
+    local diff = opts.expanded and opts.expanded[M.diff_key(f)]
+    if at_cursor(item) then
+      local pairs_ = vim.tbl_map(function(p)
+        return p[1] == "toggle_diff" and diff and { p[1], "hide diff" } or p
+      end, spec.file_hints)
+      add_hint(segs, hint(pairs_))
     end
     out[#out + 1] = { segs = segs, item = item }
 
-    local diff = opts.expanded and opts.expanded[M.diff_key(f)]
     if diff then
       diff_content(out, diff, function(i)
         return { kind = "diff", section = section, file = f, diff_line = i }
@@ -571,11 +608,13 @@ local function files(state, opts)
     return out
   end
 
-  local section_hints = {
-    conflicted = hint({ { "stage", "mark resolved" }, { "toggle_diff", "diff" } }, "(git mergetool)"),
-    staged = hint({ { "unstage", "unstage" }, { "toggle_diff", "diff" }, { "commit", "commit" } }),
-    unstaged = hint({ { "stage", "stage" }, { "discard", "discard" }, { "toggle_diff", "diff" } }),
-    untracked = hint({ { "stage", "stage" }, { "discard", "delete" }, { "toggle_diff", "diff" } }),
+  -- What each key does to a file of the section (on the header: to all of them). Conflicted files cannot be
+  -- stashed; committing goes with the staged changes.
+  local file_hints = {
+    conflicted = { { "stage", "mark resolved" }, { "toggle_diff", "diff" } },
+    staged = { { "unstage", "unstage" }, { "toggle_diff", "diff" }, { "stash", "stash" }, { "commit", "commit" } },
+    unstaged = { { "stage", "stage" }, { "discard", "discard" }, { "toggle_diff", "diff" }, { "stash", "stash" } },
+    untracked = { { "stage", "stage" }, { "discard", "delete" }, { "toggle_diff", "diff" }, { "stash", "stash" } },
   }
   for _, section in ipairs({ "conflicted", "staged", "unstaged", "untracked" }) do
     file_section(out, section, fs[section], {
@@ -583,7 +622,9 @@ local function files(state, opts)
       icon = ic[section],
       header_hl = HEADER_HL[section],
       hl = ITEM_HL[section],
-      hint = section_hints[section],
+      header_hints = file_hints[section],
+      header_extra = section == "conflicted" and "(git mergetool)" or nil,
+      file_hints = file_hints[section],
     }, opts)
   end
   return out
@@ -626,7 +667,8 @@ local function stash_files(view, opts)
     icon = ic.unstaged,
     header_hl = HEADER_HL.unstaged,
     hl = ITEM_HL.unstaged,
-    hint = hint({ { "toggle_diff", "diff" } }),
+    header_hints = { { "toggle_diff", "diff" } },
+    file_hints = { { "toggle_diff", "diff" }, { "open", "open" } },
     stash = view.stash.hash,
   }, opts)
   file_section(out, "untracked", view.files.untracked, {
@@ -634,7 +676,8 @@ local function stash_files(view, opts)
     icon = ic.untracked,
     header_hl = HEADER_HL.untracked,
     hl = ITEM_HL.untracked,
-    hint = hint({ { "toggle_diff", "diff" } }),
+    header_hints = { { "toggle_diff", "diff" } },
+    file_hints = { { "toggle_diff", "diff" }, { "open", "open" } },
     stash = view.stash.hash,
   }, opts)
   if #out == before then
@@ -755,7 +798,9 @@ local function commit_graph(state, search)
       vim.list_extend(segs, with_matches(c.abbrev, hash_hl, search))
       add(segs, { " " })
       vim.list_extend(segs, with_matches(c.subject, "GitStatusSubject", search))
-      out[#out + 1] = { segs = segs, item = item, line_hl = line_hl }
+      -- The commit time at the right edge, dimmed.
+      local aside = c.time and { os.date("%H:%M %d.%m.%y", c.time), DIM } or nil
+      out[#out + 1] = { segs = segs, item = item, line_hl = line_hl, aside = aside }
     end
   end
   return out
@@ -895,7 +940,14 @@ function M.render(state, opts)
       end
     end
     offset = math.max(math.min(offset, #content - rows), 0)
-    local top = box(name, spec[2], content, rows, offset, name == "compose" and compose_label() or nil)
+    -- The graph shows no visible range: its history is loaded page by page, so the count says little.
+    local label = nil
+    if name == "compose" then
+      label = compose_label()
+    elseif name == "graph" then
+      label = false
+    end
+    local top = box(name, spec[2], content, rows, offset, label)
     boxes[name] = { top = top, rows = rows, offset = offset, total = #content }
     scroll[name] = offset
   end

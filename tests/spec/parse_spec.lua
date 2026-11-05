@@ -122,12 +122,14 @@ end)
 
 describe("parse.log", function()
   it("parses commits with parents and decorations", function()
-    local out = "aaaa\31aa\31bbbb cccc\31HEAD -> main, tag: v1\31Merge it\30\nbbbb\31bb\31\31\31root commit\30\n"
+    local out = "aaaa\31aa\31bbbb cccc\31HEAD -> main, tag: v1\0311700000000\31Merge it\30\n"
+      .. "bbbb\31bb\31\31\0311600000000\31root commit\30\n"
     local commits = log.parse(out)
     eq(2, #commits)
     eq({ "bbbb", "cccc" }, commits[1].parents)
     eq("HEAD -> main, tag: v1", commits[1].deco)
     eq("Merge it", commits[1].subject)
+    eq(1700000000, commits[1].time)
     eq({}, commits[2].parents)
     eq("", commits[2].deco)
   end)

@@ -4,7 +4,7 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 
 ```
 ╭── Branches ────────────────────────────────────────────────────────────────╮
-│  Remote: [v1] | origin/main | f fetch · P pull                             │
+│  Remote: [v1] | origin/main | f fetch · P pull        (cursor on this row) │
 │  HEAD:   [^2] | main (protected)                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Tags ────────────────────────────────────────────────────────────────────╮
@@ -15,31 +15,31 @@ An interactive git status dashboard for Neovim: branches, tags, stashes, files a
 │    stash@{0} On main: experiment                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Files ───────────────────────────────────────────────────────────────────╮
-│  Staged changes (2) | u unstage · <Tab> diff · c commit                    │
+│  Staged changes (2)                                                        │
 │   M keep.txt (+2 | -1)                                                     │
 │   R old.txt → new.txt (+0 | -0)                                            │
 │                                                                            │
-│  Unstaged changes (1) | s stage · X discard · <Tab> diff                   │
-│   M x.txt (+1 | -0) | S stash                                              │
+│  Unstaged changes (1)                                                      │
+│   M x.txt (+1 | -0) | s stage · X discard · <Tab> diff · S stash           │
 │                                                                            │
-│  Untracked (1) | s stage · X delete · <Tab> diff                           │
+│  Untracked (1)                                                             │
 │   ?  my notes.md (new)                                                     │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭── Graph ───────────────────────────────────────────────────────────────────╮
 │        origin/main                                                         │
-│  ○   ! 181024a upstream fix                                                │
+│  ○   ! 181024a upstream fix                                 14:32 03.11.26 │
 │  │     HEAD -> main                                                        │
-│  │ ○ ! bc8d9a4 add x                                                       │
-│  │ ○ ! a1b2c3d refactor                                                    │
+│  │ ○ ! bc8d9a4 add x                                        11:05 03.11.26 │
+│  │ ○ ! a1b2c3d refactor                                     09:47 03.11.26 │
 │  ├─╯                                                                       │
 │  │     tag: v1.0                                                           │
-│  ●     149f297 Merge branch 'feature'                                      │
+│  ●     149f297 Merge branch 'feature'                       17:20 28.10.26 │
 │  ├─╮                                                                       │
 │  │ │   feature                                                             │
-│  │ ○   d72be35 feature work                                                │
+│  │ ○   d72be35 feature work                                 16:58 28.10.26 │
 │  ├─╯                                                                       │
-│  ○     36b513e main work                                                   │
-│  ○     c682273 initial commit                                              │
+│  ○     36b513e main work                                    10:14 27.10.26 │
+│  ○     c682273 initial commit                               08:30 20.10.26 │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 (shown with `icons = false`; with a Nerd Font the labels get icons. Ref names go on a grey line above their commit; unpushed and incoming commits are marked `!`, incoming ones also get an amber row background. Unpushed commits on top of the upstream, and incoming commits on top of HEAD, are drawn on a side lane to the right (`├─╯`) until they are pushed / pulled.)
@@ -92,9 +92,9 @@ require("git").setup({
 | `c a` | amend the last commit with the staged changes, editing its message |
 | `r` | on a commit in the graph: revert it (asks first) |
 | `R` | on an unpushed commit in the graph: change its message |
-| `f` | fetch (a spinner shows in the Branches box meanwhile) |
-| `P` | pull the fetched commits (fast-forward; diverged: as `pull.rebase` says); hinted on the Remote row while there are some, with a spinner meanwhile |
-| `p` | push menu: `u` toggles `--set-upstream <remote> HEAD` (publish a new branch), `f` toggles `--force-with-lease`, then `p` pushes; a spinner shows on the HEAD row meanwhile |
+| `f` | on the Remote row: fetch (a spinner shows in the Branches box meanwhile) |
+| `P` | on the Remote row: pull the fetched commits (fast-forward; diverged: as `pull.rebase` says); hinted on the Remote row while there are some, with a spinner meanwhile |
+| `p` | on the HEAD row: push menu: `u` toggles `--set-upstream <remote> HEAD` (publish a new branch), `f` toggles `--force-with-lease`, then `p` pushes; a spinner shows on the HEAD row meanwhile |
 | `z` | in the Files or Graph box: show only that box over the whole window; `z` or `q` to go back |
 | `/` / `n` / `N` | in the zoomed graph: search hashes, ref names and subjects, next / previous match |
 | `q` / `<Esc>` | close the commit editor, details or zoom if open, else the view (`<Esc>` only for floats) |
